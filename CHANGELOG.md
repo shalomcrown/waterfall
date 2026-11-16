@@ -12,10 +12,12 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 > Work merged but not yet shipped. Move entries to a versioned section on release.
 
 ### Added
-- The window is a waterfall display with Start, Stop, Save, Load, and Configure along the bottom. New color columns fill from the left and then scroll so the newest stays on the right.
+- The window is a waterfall display with Start, Stop, Save, Load, and Configure along the bottom. New color columns appear at the right edge and older columns shift left immediately.
 - Configure opens settings for the input and output devices, sample rate, FFT size, and heatmap palette. Changes are stored immediately. Save and Load do not do anything yet.
 - Settings has an explicit Close button. On Android the page is full screen and the exit control is a Back button.
 - Start captures the selected input, buffers the samples, and draws a Hann-windowed FFT column on the waterfall. Overlap defaults to 50% and can be changed in Settings. Columns are released on the hop interval so the scroll stays even.
+- The Linux package installs a desktop entry and a waterfall icon, and the running window uses that icon in the dock.
+- Settings can keep the screen on, and can limit the displayed frequency range. The plot has a frequency scale on the left and a scrolling time scale along the bottom.
 
 ### Changed
 -

@@ -52,6 +52,10 @@ if grep -E -q '^(export )?WATERFALL_(KEYSTORE|KEY)_PASSWORD=' "$ROOT/build-andro
 fi
 require_line "$ROOT/scripts/prereqs.env" "ANDROID_JAVA_HOME=.*java-17"
 
+require_line "$ROOT/resources/waterfall.desktop.in" "Icon=waterfall"
+require_line "$ROOT/resources/waterfall.desktop.in" "StartupWMClass=waterfall"
+require_line "$ROOT/resources/waterfall.svg" "<svg"
+require_line "$ROOT/CMakeLists.txt" "share/icons/hicolor/scalable/apps"
 require_line "$ROOT/CMakeLists.txt" 'set(CPACK_GENERATOR "NSIS")'
 require_line "$ROOT/CMakeLists.txt" 'set(CPACK_GENERATOR "DEB")'
 require_line "$ROOT/CMakeLists.txt" "if(ANDROID)"

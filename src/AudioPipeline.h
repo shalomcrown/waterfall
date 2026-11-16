@@ -34,12 +34,15 @@ public:
     explicit AudioPipeline(QObject* parent = nullptr);
     ~AudioPipeline() override;
 
-    bool start(const QAudioDevice& device, int sampleRate, int fftSize, int overlapPercent,
+    bool start(const QAudioDevice& device, int sampleRate, int fftSize, int overlapPercent, int maxFrequencyHz,
                const QString& paletteName, QString& error);
     void stop();
     bool isRunning() const { return m_running.load(std::memory_order_acquire) == true; }
+    int hopSamples() const { return m_hop; }
+    int captureSampleRate() const { return m_sampleRate; }
 
-    void prepareOffline(int fftSize, const QString& paletteName, int overlapPercent = 0);
+    void prepareOffline(int fftSize, const QString& paletteName, int overlapPercent = 0, int sampleRate = 0,
+                        int maxFrequencyHz = 0);
     size_t writeSamples(std::span<const float> samples);
     bool processPendingBlock();
 
@@ -62,6 +65,7 @@ private:
     int m_hop = 0;
     int m_filled = 0;
     int m_sampleRate = 0;
+    int m_maxFrequencyHz = 0;
     QAudioFormat m_format;
     std::unique_ptr<QAudioSource> m_source;
     QIODevice* m_io = nullptr;

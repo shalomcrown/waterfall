@@ -1,6 +1,7 @@
 #include "AudioPipeline.h"
 
 #include "AudioRingBuffer.h"
+#include "FftTiming.h"
 #include "Palette.h"
 
 #include <QAudio>
@@ -28,20 +29,6 @@ QAudioFormat captureFormat(const QAudioDevice& device, int sampleRate) {
     }
     return device.preferredFormat();
 }
-
-// ================================================================================
-
-int hopFor(int fftSize, int overlapPercent) {
-    if (fftSize < 2) {
-        return 0;
-    }
-    const int percent = std::clamp(overlapPercent, 0, 87);
-    if (percent >= 87) {
-        return std::max(1, fftSize / 8);
-    }
-    const int hop = fftSize - (fftSize * percent) / 100;
-    return std::clamp(hop, 1, fftSize);
-}
 }  // namespace
 
 // ================================================================================
@@ -62,14 +49,14 @@ AudioPipeline::~AudioPipeline() {
 // ================================================================================
 
 bool AudioPipeline::start(const QAudioDevice& device, int sampleRate, int fftSize, int overlapPercent,
-                          const QString& paletteName, QString& error) {
+                          int maxFrequencyHz, const QString& paletteName, QString& error) {
     stop();
     error.clear();
     if (device.isNull() == true) {
         error = tr("No input device is available.");
         return false;
     }
-    prepareOffline(fftSize, paletteName, overlapPercent);
+    prepareOffline(fftSize, paletteName, overlapPercent, sampleRate, maxFrequencyHz);
     if (m_fftSize < 2 || m_hop < 1) {
         error = tr("The FFT size is too small.");
         return false;
@@ -128,11 +115,14 @@ void AudioPipeline::stop() {
 
 // ================================================================================
 
-void AudioPipeline::prepareOffline(int fftSize, const QString& paletteName, int overlapPercent) {
+void AudioPipeline::prepareOffline(int fftSize, const QString& paletteName, int overlapPercent, int sampleRate,
+                                  int maxFrequencyHz) {
     if (m_running.load(std::memory_order_acquire) == true) {
         return;
     }
     m_palette = paletteName;
+    m_sampleRate = sampleRate;
+    m_maxFrequencyHz = maxFrequencyHz;
     m_pending.clear();
     m_filled = 0;
     {
@@ -149,7 +139,7 @@ void AudioPipeline::prepareOffline(int fftSize, const QString& paletteName, int 
         return;
     }
     m_fftSize = fftSize;
-    m_hop = hopFor(fftSize, overlapPercent);
+    m_hop = waterfallHop(fftSize, overlapPercent);
     m_fft.configure(fftSize);
     size_t capacity = 131072;
     const size_t needed = static_cast<size_t>(fftSize) * 16;
@@ -228,10 +218,18 @@ bool AudioPipeline::nextColumn(QVector<QRgb>& column) {
         return false;
     }
     const int bins = static_cast<int>(m_levels.size());
-    column.resize(bins);
-    for (int i = 0; i < bins; ++i) {
-        // Image row 0 is the top of the waterfall, so Nyquist goes first.
-        const int source = bins - 1 - i;
+    int lastBin = bins - 1;
+    if (m_sampleRate > 1 && m_maxFrequencyHz > 0 &&
+        static_cast<double>(m_maxFrequencyHz) < static_cast<double>(m_sampleRate) / 2.0) {
+        const int limited = static_cast<int>(
+                std::lround(static_cast<double>(m_maxFrequencyHz) * m_fftSize / static_cast<double>(m_sampleRate)));
+        lastBin = std::clamp(limited, 1, bins - 1);
+    }
+    const int shown = lastBin + 1;
+    column.resize(shown);
+    for (int i = 0; i < shown; ++i) {
+        // Row 0 is the top of the waterfall: the highest displayed frequency.
+        const int source = lastBin - i;
         column[i] = Palette::color(m_palette, m_levels[static_cast<size_t>(source)]);
     }
     return true;

@@ -2,8 +2,11 @@
 
 #include <QMainWindow>
 
+class QShowEvent;
+
 class QPushButton;
 class AudioPipeline;
+class SpectrogramWidget;
 class WaterfallView;
 
 class MainWindow : public QMainWindow {
@@ -19,6 +22,9 @@ public:
     QPushButton* configureButton() const { return m_configure; }
     WaterfallView* waterfall() const { return m_waterfall; }
 
+protected:
+    void showEvent(QShowEvent* event) override;
+
 private:
     void setRunning(bool running);
     void startCapture();
@@ -27,7 +33,10 @@ private:
     void ensureMicrophonePermission();
     void showPermissionDialog();
     void showAudioError(const QString& text);
+    void refreshScale();
+    void applyKeepAwake();
 
+    SpectrogramWidget* m_spectrogram = nullptr;
     WaterfallView* m_waterfall = nullptr;
     AudioPipeline* m_pipeline = nullptr;
     QPushButton* m_start = nullptr;

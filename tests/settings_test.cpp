@@ -3,6 +3,7 @@
 #include "SettingsDialog.h"
 
 #include <QApplication>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QPushButton>
 #include <QSettings>
@@ -46,6 +47,8 @@ TEST(AppSettings, DefaultsAndImmediateRoundTrip) {
     EXPECT_EQ(AppSettings::sampleRate(), 48000);
     EXPECT_EQ(AppSettings::fftSize(), 2048);
     EXPECT_EQ(AppSettings::overlapPercent(), 50);
+    EXPECT_EQ(AppSettings::maxFrequencyHz(), 8000);
+    EXPECT_FALSE(AppSettings::keepScreenOn());
     EXPECT_EQ(AppSettings::palette(), QStringLiteral("Viridis"));
     EXPECT_EQ(AppSettings::fftSizes(), (QList<int>{1024, 2048, 4096}));
 
@@ -54,6 +57,8 @@ TEST(AppSettings, DefaultsAndImmediateRoundTrip) {
     AppSettings::setSampleRate(44100);
     AppSettings::setFftSize(4096);
     AppSettings::setOverlapPercent(75);
+    AppSettings::setMaxFrequencyHz(4000);
+    AppSettings::setKeepScreenOn(true);
     AppSettings::setPalette(QStringLiteral("Magma"));
 
     EXPECT_EQ(AppSettings::inputDeviceId(), QStringLiteral("mic-1"));
@@ -61,6 +66,8 @@ TEST(AppSettings, DefaultsAndImmediateRoundTrip) {
     EXPECT_EQ(AppSettings::sampleRate(), 44100);
     EXPECT_EQ(AppSettings::fftSize(), 4096);
     EXPECT_EQ(AppSettings::overlapPercent(), 75);
+    EXPECT_EQ(AppSettings::maxFrequencyHz(), 4000);
+    EXPECT_TRUE(AppSettings::keepScreenOn());
     EXPECT_EQ(AppSettings::palette(), QStringLiteral("Magma"));
 }
 
@@ -94,6 +101,14 @@ TEST(SettingsDialog, ChangingAPulldownSavesImmediately) {
     EXPECT_EQ(overlap->currentData().toInt(), 50);
     overlap->setCurrentIndex(overlap->findData(75));
     EXPECT_EQ(AppSettings::overlapPercent(), 75);
+    QComboBox* range = dialog.maxFrequencyCombo();
+    ASSERT_NE(range, nullptr);
+    EXPECT_EQ(range->currentData().toInt(), 8000);
+    range->setCurrentIndex(range->findData(0));
+    EXPECT_EQ(AppSettings::maxFrequencyHz(), 0);
+    ASSERT_NE(dialog.keepScreenCheck(), nullptr);
+    dialog.keepScreenCheck()->setChecked(true);
+    EXPECT_TRUE(AppSettings::keepScreenOn());
     QComboBox* rates = dialog.sampleRateCombo();
     if (rates->count() > 1) {
         const int other = rates->currentIndex() == 0 ? 1 : 0;

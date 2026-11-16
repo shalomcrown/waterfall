@@ -2,6 +2,7 @@
 
 #include <QDialog>
 
+class QCheckBox;
 class QComboBox;
 class QPushButton;
 class QShowEvent;
@@ -17,6 +18,8 @@ public:
     QComboBox* sampleRateCombo() const { return m_sampleRate; }
     QComboBox* fftCombo() const { return m_fft; }
     QComboBox* overlapCombo() const { return m_overlap; }
+    QComboBox* maxFrequencyCombo() const { return m_maxFrequency; }
+    QCheckBox* keepScreenCheck() const { return m_keepScreen; }
     QComboBox* paletteCombo() const { return m_palette; }
     QPushButton* closeButton() const { return m_close; }
 
@@ -33,6 +36,8 @@ private:
     QComboBox* m_sampleRate = nullptr;
     QComboBox* m_fft = nullptr;
     QComboBox* m_overlap = nullptr;
+    QComboBox* m_maxFrequency = nullptr;
+    QCheckBox* m_keepScreen = nullptr;
     QComboBox* m_palette = nullptr;
     QPushButton* m_close = nullptr;
     bool m_fullScreenApplied = false;

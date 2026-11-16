@@ -23,11 +23,19 @@ public:
     static int overlapPercent();
     static void setOverlapPercent(int percent);
 
+    // Hertz. 0 means the full range up to Nyquist.
+    static int maxFrequencyHz();
+    static void setMaxFrequencyHz(int hz);
+
+    static bool keepScreenOn();
+    static void setKeepScreenOn(bool keep);
+
     static QString palette();
     static void setPalette(const QString& name);
 
     static QList<int> sampleRates();
     static QList<int> fftSizes();
     static QList<int> overlapPercents();
+    static QList<int> maxFrequenciesHz();
     static QStringList paletteNames();
 };

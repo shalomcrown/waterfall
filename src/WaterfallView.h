@@ -7,9 +7,8 @@
 #include <initializer_list>
 #include <span>
 
-// History of vertical color columns. New columns fill from the left.
-// Once the width is full, older columns shift left and the newest stays
-// on the right edge.
+// History of vertical color columns. Each new column is painted at the
+// right edge and the older columns shift left immediately.
 class WaterfallView : public QWidget {
     Q_OBJECT
 

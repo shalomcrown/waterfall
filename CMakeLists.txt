@@ -23,6 +23,9 @@ find_package(Qt6 COMPONENTS
         Widgets
         Multimedia
         REQUIRED)
+if(UNIX AND NOT ANDROID AND NOT APPLE)
+    find_package(Qt6 REQUIRED COMPONENTS DBus)
+endif()
 
 # PocketFFT is header-only, so FetchContent just vendors the header.
 # Pinned to hayguen/pocketfft ea778e37 (BSD-3-Clause).
@@ -48,6 +51,9 @@ qt_add_executable(waterfall
         src/FftEngine.cpp
         src/Palette.cpp
         src/AudioPipeline.cpp
+        src/AppIcon.cpp
+        src/ScreenAwake.cpp
+        src/SpectrogramWidget.cpp
 )
 set_target_properties(waterfall PROPERTIES
         AUTOMOC ON
@@ -70,6 +76,10 @@ target_link_libraries(waterfall PRIVATE
         Qt::Multimedia
         waterfall_pocketfft
 )
+if(TARGET Qt6::DBus)
+    target_link_libraries(waterfall PRIVATE Qt6::DBus)
+    target_compile_definitions(waterfall PRIVATE WATERFALL_HAS_DBUS=1)
+endif()
 
 if(NOT CMAKE_CROSSCOMPILING)
     include(FetchContent)
@@ -97,6 +107,9 @@ if(NOT CMAKE_CROSSCOMPILING)
             src/FftEngine.cpp
             src/Palette.cpp
             src/AudioPipeline.cpp
+            src/AppIcon.cpp
+            src/ScreenAwake.cpp
+            src/SpectrogramWidget.cpp
             tests/audio_test.cpp
     )
     target_include_directories(waterfall_tests PRIVATE src)
@@ -109,6 +122,10 @@ if(NOT CMAKE_CROSSCOMPILING)
             Qt::Multimedia
             waterfall_pocketfft
     )
+    if(TARGET Qt6::DBus)
+        target_link_libraries(waterfall_tests PRIVATE Qt6::DBus)
+        target_compile_definitions(waterfall_tests PRIVATE WATERFALL_HAS_DBUS=1)
+    endif()
     include(GoogleTest)
     gtest_discover_tests(waterfall_tests)
     add_test(
@@ -176,10 +193,16 @@ if(UNIX AND NOT APPLE)
     install(FILES "${CMAKE_BINARY_DIR}/${APP_ID}.desktop"
             DESTINATION share/applications
     )
+    install(FILES "${CMAKE_SOURCE_DIR}/resources/waterfall.svg"
+            DESTINATION share/icons/hicolor/scalable/apps
+    )
     file(WRITE "${CMAKE_BINARY_DIR}/postinst"
 "#!/bin/sh
 set -e
 update-desktop-database -q || true
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q /usr/share/icons/hicolor || true
+fi
 exit 0
 ")
     file(WRITE "${CMAKE_BINARY_DIR}/postrm"

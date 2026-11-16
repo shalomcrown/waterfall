@@ -1,12 +1,18 @@
 #include "MainWindow.h"
 
+#include "AppIcon.h"
 #include "AppSettings.h"
 #include "AudioPermission.h"
 #include "AudioPipeline.h"
+#include "FftTiming.h"
+#include "ScreenAwake.h"
 #include "SettingsDialog.h"
+#include "SpectrogramWidget.h"
 #include "WaterfallView.h"
 
 #include <QApplication>
+#include <QGuiApplication>
+#include <QShowEvent>
 #include <QAudioDevice>
 #include <QIcon>
 #include <QHBoxLayout>
@@ -63,14 +69,16 @@ void execMessage(QMessageBox& box) {
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle(QStringLiteral("Waterfall"));
+    AppIcon::apply(this);
 
     auto* central = new QWidget(this);
     auto* layout = new QVBoxLayout(central);
     layout->setContentsMargins(8, 8, 8, 8);
     layout->setSpacing(8);
 
-    m_waterfall = new WaterfallView(central);
-    layout->addWidget(m_waterfall, 1);
+    m_spectrogram = new SpectrogramWidget(central);
+    m_waterfall = m_spectrogram->waterfall();
+    layout->addWidget(m_spectrogram, 1);
 
     auto* controls = new QHBoxLayout();
     controls->setSpacing(8);
@@ -99,16 +107,38 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     m_pipeline = new AudioPipeline(this);
     connect(m_pipeline, &AudioPipeline::columnReady, this, [this](const QVector<QRgb>& column) {
-        if (m_waterfall == nullptr || column.isEmpty() == true) {
+        if (m_spectrogram == nullptr || column.isEmpty() == true) {
             return;
         }
-        m_waterfall->appendColumn(std::span<const QRgb>(column.constData(), static_cast<size_t>(column.size())));
+        m_spectrogram->appendColumn(std::span<const QRgb>(column.constData(), static_cast<size_t>(column.size())));
     });
+    refreshScale();
+    applyKeepAwake();
+    connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
+        if (state == Qt::ApplicationActive) {
+            applyKeepAwake();
+        }
+    });
+    QTimer::singleShot(800, this, &MainWindow::applyKeepAwake);
+    QTimer::singleShot(2000, this, &MainWindow::applyKeepAwake);
 
     connect(m_start, &QPushButton::clicked, this, &MainWindow::startCapture);
     connect(m_stop, &QPushButton::clicked, this, &MainWindow::stopCapture);
     connect(m_configure, &QPushButton::clicked, this, &MainWindow::openSettings);
     QTimer::singleShot(0, this, &MainWindow::ensureMicrophonePermission);
+}
+
+// ================================================================================
+
+void MainWindow::showEvent(QShowEvent* event) {
+    QMainWindow::showEvent(event);
+    applyKeepAwake();
+}
+
+// ================================================================================
+
+void MainWindow::applyKeepAwake() {
+    ScreenAwake::setKeepAwake(AppSettings::keepScreenOn());
 }
 
 // ================================================================================
@@ -138,8 +168,9 @@ void MainWindow::startCapture() {
     }
 
     QString error;
-    const bool started = m_pipeline->start(selectedInputDevice(), AppSettings::sampleRate(), AppSettings::fftSize(),
-                                           AppSettings::overlapPercent(), AppSettings::palette(), error);
+    const bool started =
+            m_pipeline->start(selectedInputDevice(), AppSettings::sampleRate(), AppSettings::fftSize(),
+                              AppSettings::overlapPercent(), AppSettings::maxFrequencyHz(), AppSettings::palette(), error);
     if (started == false) {
         setRunning(false);
         if (error.isEmpty() == true) {
@@ -147,6 +178,11 @@ void MainWindow::startCapture() {
         }
         showAudioError(error);
         return;
+    }
+    const int rate = m_pipeline->captureSampleRate();
+    if (rate > 1 && m_pipeline->hopSamples() > 0) {
+        m_spectrogram->setScale(static_cast<double>(m_pipeline->hopSamples()) / static_cast<double>(rate),
+                                displayedMaxHz(rate, AppSettings::maxFrequencyHz()));
     }
     setRunning(true);
 }
@@ -169,6 +205,7 @@ void MainWindow::openSettings() {
             }
             SettingsDialog dialog(this);
             dialog.exec();
+            refreshScale();
         });
         return;
     }
@@ -177,6 +214,22 @@ void MainWindow::openSettings() {
     }
     SettingsDialog dialog(this);
     dialog.exec();
+    refreshScale();
+}
+
+// ================================================================================
+
+void MainWindow::refreshScale() {
+    if (m_spectrogram == nullptr || m_pipeline->isRunning() == true) {
+        return;
+    }
+    const int rate = AppSettings::sampleRate();
+    const int hop = waterfallHop(AppSettings::fftSize(), AppSettings::overlapPercent());
+    if (rate < 2 || hop < 1) {
+        return;
+    }
+    m_spectrogram->setScale(static_cast<double>(hop) / static_cast<double>(rate),
+                            displayedMaxHz(rate, AppSettings::maxFrequencyHz()));
 }
 
 // ================================================================================

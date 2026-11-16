@@ -31,12 +31,12 @@ void WaterfallView::appendColumn(std::span<const QRgb> bins) {
     if (bins.empty() == true || m_image.isNull() == true || m_image.width() < 1 || m_image.height() < 1) {
         return;
     }
-    if (m_filled < m_image.width()) {
-        paintColumn(m_filled, bins);
-        ++m_filled;
-    } else {
+    if (m_image.width() >= 2) {
         shiftLeft();
-        paintColumn(m_image.width() - 1, bins);
+    }
+    paintColumn(m_image.width() - 1, bins);
+    if (m_filled < m_image.width()) {
+        ++m_filled;
     }
     update();
 }

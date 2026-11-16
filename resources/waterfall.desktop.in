@@ -2,6 +2,8 @@
 Type=Application
 Name=@APP_DISPLAY_NAME@
 Exec=@APP_EXE_NAME@
+Icon=waterfall
+Comment=Scrolling audio waterfall
 Terminal=false
-Categories=Utility;
+Categories=Utility;Audio;
 StartupWMClass=waterfall

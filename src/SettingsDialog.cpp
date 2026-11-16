@@ -1,8 +1,10 @@
 #include "SettingsDialog.h"
 
 #include "AppSettings.h"
+#include "ScreenAwake.h"
 
 #include <QAudioDevice>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -117,6 +119,10 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     m_sampleRate = makeCombo(this, "sampleRate");
     m_fft = makeCombo(this, "fftSize");
     m_overlap = makeCombo(this, "overlap");
+    m_maxFrequency = makeCombo(this, "maxFrequency");
+    m_keepScreen = new QCheckBox(tr("Keep screen on"), this);
+    m_keepScreen->setObjectName(QStringLiteral("keepScreenOn"));
+    m_keepScreen->setMinimumHeight(44);
     m_palette = makeCombo(this, "palette");
 
     form->addRow(tr("Input"), m_input);
@@ -124,6 +130,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     form->addRow(tr("Sample rate"), m_sampleRate);
     form->addRow(tr("FFT size"), m_fft);
     form->addRow(tr("Overlap"), m_overlap);
+    form->addRow(tr("Frequency range"), m_maxFrequency);
+    form->addRow(QString(), m_keepScreen);
     form->addRow(tr("Heatmap"), m_palette);
     layout->addLayout(form);
     layout->addStretch(1);
@@ -152,6 +160,18 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
         selectSaved(m_overlap, AppSettings::overlapPercent(), 50);
     }
     {
+        QSignalBlocker blocker(m_maxFrequency);
+        for (int hz : AppSettings::maxFrequenciesHz()) {
+            const QString label = hz == 0 ? tr("Full range") : tr("%1 kHz").arg(hz / 1000);
+            m_maxFrequency->addItem(label, hz);
+        }
+        selectSaved(m_maxFrequency, AppSettings::maxFrequencyHz(), 8000);
+    }
+    {
+        QSignalBlocker blocker(m_keepScreen);
+        m_keepScreen->setChecked(AppSettings::keepScreenOn());
+    }
+    {
         QSignalBlocker blocker(m_palette);
         for (const QString& name : AppSettings::paletteNames()) {
             m_palette->addItem(name, name);
@@ -175,6 +195,13 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     });
     connect(m_overlap, &QComboBox::currentIndexChanged, this, [this] {
         AppSettings::setOverlapPercent(m_overlap->currentData().toInt());
+    });
+    connect(m_maxFrequency, &QComboBox::currentIndexChanged, this, [this] {
+        AppSettings::setMaxFrequencyHz(m_maxFrequency->currentData().toInt());
+    });
+    connect(m_keepScreen, &QCheckBox::toggled, this, [](bool checked) {
+        AppSettings::setKeepScreenOn(checked);
+        ScreenAwake::setKeepAwake(checked);
     });
     connect(m_palette, &QComboBox::currentIndexChanged, this, [this] {
         AppSettings::setPalette(m_palette->currentData().toString());

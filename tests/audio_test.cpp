@@ -202,3 +202,19 @@ TEST(AudioPipeline, HalfOverlapAdvancesByHalfAWindow) {
     EXPECT_EQ(columns, 2);
     EXPECT_FALSE(pipeline.processPendingBlock());
 }
+
+// ================================================================================
+
+TEST(AudioPipeline, FrequencyCeilingDropsBinsAboveTheLimit) {
+    audioApp();
+    constexpr int size = 256;
+    AudioPipeline pipeline;
+    pipeline.prepareOffline(size, QStringLiteral("Gray"), 0, 16000, 4000);
+    const std::vector<float> input(static_cast<size_t>(size), 0.f);
+    EXPECT_EQ(pipeline.writeSamples(input), input.size());
+    QVector<QRgb> column;
+    QObject::connect(&pipeline, &AudioPipeline::columnReady, &pipeline,
+                     [&](const QVector<QRgb>& ready) { column = ready; });
+    ASSERT_TRUE(pipeline.processPendingBlock());
+    EXPECT_EQ(column.size(), 65);
+}

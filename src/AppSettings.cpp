@@ -70,6 +70,30 @@ void AppSettings::setOverlapPercent(int percent) {
 
 // ================================================================================
 
+int AppSettings::maxFrequencyHz() {
+    return store().value(QStringLiteral("audio/maxFrequencyHz"), 8000).toInt();
+}
+
+// ================================================================================
+
+void AppSettings::setMaxFrequencyHz(int hz) {
+    store().setValue(QStringLiteral("audio/maxFrequencyHz"), hz);
+}
+
+// ================================================================================
+
+bool AppSettings::keepScreenOn() {
+    return store().value(QStringLiteral("display/keepScreenOn"), false).toBool();
+}
+
+// ================================================================================
+
+void AppSettings::setKeepScreenOn(bool keep) {
+    store().setValue(QStringLiteral("display/keepScreenOn"), keep);
+}
+
+// ================================================================================
+
 QString AppSettings::palette() {
     return store().value(QStringLiteral("display/palette"), QStringLiteral("Viridis")).toString();
 }
@@ -96,6 +120,12 @@ QList<int> AppSettings::fftSizes() {
 
 QList<int> AppSettings::overlapPercents() {
     return {0, 25, 50, 75, 87};
+}
+
+// ================================================================================
+
+QList<int> AppSettings::maxFrequenciesHz() {
+    return {4000, 8000, 12000, 16000, 24000, 0};
 }
 
 // ================================================================================
