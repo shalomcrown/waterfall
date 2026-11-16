@@ -21,9 +21,34 @@ find_package(Qt6 COMPONENTS
         Core
         Gui
         Widgets
+        Multimedia
         REQUIRED)
 
-qt_add_executable(waterfall main.cpp)
+# PocketFFT is header-only, so FetchContent just vendors the header.
+# Pinned to hayguen/pocketfft ea778e37 (BSD-3-Clause).
+include(FetchContent)
+FetchContent_Declare(
+        pocketfft
+        GIT_REPOSITORY https://github.com/hayguen/pocketfft.git
+        GIT_TAG ea778e37710c07723435b1be58235996d1d43a5a
+)
+FetchContent_MakeAvailable(pocketfft)
+add_library(waterfall_pocketfft INTERFACE)
+target_include_directories(waterfall_pocketfft INTERFACE "${pocketfft_SOURCE_DIR}")
+target_compile_definitions(waterfall_pocketfft INTERFACE POCKETFFT_NO_MULTITHREADING)
+
+qt_add_executable(waterfall
+        main.cpp
+        src/MainWindow.cpp
+        src/WaterfallView.cpp
+        src/AppSettings.cpp
+        src/SettingsDialog.cpp
+        src/AudioPermission.cpp
+        src/AudioRingBuffer.cpp
+        src/FftEngine.cpp
+        src/Palette.cpp
+        src/AudioPipeline.cpp
+)
 set_target_properties(waterfall PROPERTIES
         AUTOMOC ON
         AUTORCC ON
@@ -32,10 +57,18 @@ set_target_properties(waterfall PROPERTIES
 if(WIN32)
     set_target_properties(waterfall PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
+target_include_directories(waterfall PRIVATE src)
+if(ANDROID)
+    set_target_properties(waterfall PROPERTIES
+            QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_SOURCE_DIR}/android"
+    )
+endif()
 target_link_libraries(waterfall PRIVATE
         Qt::Core
         Qt::Gui
         Qt::Widgets
+        Qt::Multimedia
+        waterfall_pocketfft
 )
 
 if(NOT CMAKE_CROSSCOMPILING)
@@ -51,8 +84,31 @@ if(NOT CMAKE_CROSSCOMPILING)
     FetchContent_MakeAvailable(googletest)
 
     enable_testing()
-    add_executable(waterfall_tests tests/smoke_test.cpp)
-    target_link_libraries(waterfall_tests PRIVATE GTest::gtest_main Qt::Core)
+    add_executable(waterfall_tests
+            tests/smoke_test.cpp
+            tests/waterfall_view_test.cpp
+            tests/settings_test.cpp
+            src/MainWindow.cpp
+            src/WaterfallView.cpp
+            src/AppSettings.cpp
+            src/SettingsDialog.cpp
+            src/AudioPermission.cpp
+            src/AudioRingBuffer.cpp
+            src/FftEngine.cpp
+            src/Palette.cpp
+            src/AudioPipeline.cpp
+            tests/audio_test.cpp
+    )
+    target_include_directories(waterfall_tests PRIVATE src)
+    set_target_properties(waterfall_tests PROPERTIES AUTOMOC ON)
+    target_link_libraries(waterfall_tests PRIVATE
+            GTest::gtest_main
+            Qt::Core
+            Qt::Gui
+            Qt::Widgets
+            Qt::Multimedia
+            waterfall_pocketfft
+    )
     include(GoogleTest)
     gtest_discover_tests(waterfall_tests)
     add_test(
@@ -89,7 +145,7 @@ if(WIN32)
 
     file(GLOB _qt_dlls "${QT_TARGET_PREFIX}/bin/*.dll")
     install(FILES ${_qt_dlls} DESTINATION ${CMAKE_INSTALL_BINDIR})
-    foreach(_plugin platforms styles imageformats iconengines tls)
+    foreach(_plugin platforms styles imageformats iconengines tls multimedia)
         if(EXISTS "${QT_TARGET_PREFIX}/plugins/${_plugin}")
             install(DIRECTORY "${QT_TARGET_PREFIX}/plugins/${_plugin}"
                     DESTINATION ${CMAKE_INSTALL_BINDIR})

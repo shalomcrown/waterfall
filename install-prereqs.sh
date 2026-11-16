@@ -23,6 +23,7 @@ LINUX_PACKAGES=(
     g++
     pkg-config
     qt6-base-dev
+    qt6-multimedia-dev
     dpkg-dev
 )
 WINDOWS_PACKAGES=(
@@ -149,6 +150,7 @@ ensure_qt_arch() {
     prefix="$(qt_prefix "$dirname")"
     if [ -f "$prefix/lib/cmake/Qt6/Qt6Config.cmake" ]; then
         ok "Qt ${QT_VERSION} ${dirname}"
+        ensure_qt_module "$host" "$target" "$arch" "$dirname" "Multimedia" "qtmultimedia"
         return 0
     fi
     step "aqt install-qt ${host} ${target} ${QT_VERSION} ${arch}"
@@ -156,10 +158,46 @@ ensure_qt_arch() {
     if [ "$DRY_RUN" -eq 0 ]; then
         $SUDO chown "$USER:$USER" "$QT_INSTALL_BASE" 2>/dev/null || true
     fi
-    run python3 -m aqt install-qt -O "$QT_INSTALL_BASE" "$host" "$target" "$QT_VERSION" "$arch"
+    run python3 -m aqt install-qt -b "$AQT_MIRROR" -O "$QT_INSTALL_BASE" "$host" "$target" "$QT_VERSION" "$arch"
     if [ "$DRY_RUN" -eq 0 ] && [ ! -f "$prefix/lib/cmake/Qt6/Qt6Config.cmake" ]; then
         fail "Qt ${dirname} did not appear at $prefix"
     fi
+    ensure_qt_module "$host" "$target" "$arch" "$dirname" "Multimedia" "qtmultimedia"
+}
+
+ensure_qt_module() {
+    local host="$1" target="$2" arch="$3" dirname="$4" cmake_name="$5" aqt_name="$6"
+    local prefix cmake_file
+    prefix="$(qt_prefix "$dirname")"
+    cmake_file="$prefix/lib/cmake/Qt6${cmake_name}/Qt6${cmake_name}Config.cmake"
+    if [ -f "$cmake_file" ]; then
+        ok "Qt ${cmake_name} ($dirname)"
+        return 0
+    fi
+    step "aqt install Qt ${cmake_name} for ${dirname}"
+    run python3 -m aqt install-qt -b "$AQT_MIRROR" -O "$QT_INSTALL_BASE" \
+        "$host" "$target" "$QT_VERSION" "$arch" -m "$aqt_name"
+    if [ "$DRY_RUN" -eq 0 ] && [ ! -f "$cmake_file" ]; then
+        fail "Qt ${cmake_name} did not appear at $cmake_file"
+    fi
+}
+
+ensure_android_udev() {
+    local rule="/etc/udev/rules.d/51-android.rules"
+    if [ -f "$rule" ] && grep -q '18d1' "$rule"; then
+        ok "Android udev rule"
+        return 0
+    fi
+    step "udev rule so adb can open a Pixel over USB"
+    if [ "$DRY_RUN" -eq 1 ]; then
+        info "Would write $rule and reload udev"
+        return 0
+    fi
+    printf '%s\n' 'SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", MODE="0660", GROUP="plugdev"' \
+        | $SUDO tee "$rule" >/dev/null
+    $SUDO udevadm control --reload-rules
+    $SUDO udevadm trigger
+    ok "Android udev rule (unplug and replug the phone)"
 }
 
 ensure_android_sdk() {
@@ -236,6 +274,7 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "android" ]; then
     ensure_aqt
     ensure_qt_arch linux desktop "$QT_HOST_ARCH" "$QT_HOST_DIRNAME"
     ensure_qt_arch linux android "$QT_ANDROID_ARCH" "$QT_ANDROID_DIRNAME"
+    ensure_android_udev
     ensure_android_sdk
     echo
 fi
