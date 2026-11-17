@@ -43,6 +43,7 @@ ANDROID_PACKAGES=(
     python3
     python3-pip
     openjdk-17-jdk
+    imagemagick
 )
 
 if [ -t 1 ]; then

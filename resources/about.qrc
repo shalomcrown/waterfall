@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="README.md">../README.md</file>
+    </qresource>
+</RCC>

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "FftEngine.h"
+#include "PcmHistory.h"
 
 #include <QAudioDevice>
 #include <QAudioFormat>
@@ -10,6 +11,7 @@
 #include <QVector>
 
 #include <atomic>
+#include <cstdint>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -41,6 +43,13 @@ public:
     int hopSamples() const { return m_hop; }
     int captureSampleRate() const { return m_sampleRate; }
 
+    // How much recent audio Save can write. Applies on the next Start.
+    void setRecordingSeconds(int seconds);
+    int recordingSeconds() const { return m_recordingSeconds; }
+    std::vector<std::int16_t> copyRecording() const;
+    int recordingSampleRate() const;
+    bool writeRecording(const QString& path, QString& error) const;
+
     void prepareOffline(int fftSize, const QString& paletteName, int overlapPercent = 0, int sampleRate = 0,
                         int maxFrequencyHz = 0);
     size_t writeSamples(std::span<const float> samples);
@@ -66,6 +75,8 @@ private:
     int m_filled = 0;
     int m_sampleRate = 0;
     int m_maxFrequencyHz = 0;
+    int m_recordingSeconds = 0;
+    PcmHistory m_history;
     QAudioFormat m_format;
     std::unique_ptr<QAudioSource> m_source;
     QIODevice* m_io = nullptr;

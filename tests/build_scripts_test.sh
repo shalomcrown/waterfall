@@ -27,6 +27,7 @@ require_line "$ROOT/install-prereqs.sh" "mingw-w64"
 require_line "$ROOT/install-prereqs.sh" "nsis"
 require_line "$ROOT/install-prereqs.sh" "aqtinstall"
 require_line "$ROOT/install-prereqs.sh" "openjdk-17-jdk"
+require_line "$ROOT/install-prereqs.sh" "imagemagick"
 require_line "$ROOT/install-prereqs.sh" "ANDROID_NDK_VERSION"
 require_line "$ROOT/scripts/prereqs.env" "QT_VERSION="
 require_line "$ROOT/scripts/prereqs.env" "ANDROID_NDK_VERSION="
@@ -59,6 +60,9 @@ require_line "$ROOT/CMakeLists.txt" "share/icons/hicolor/scalable/apps"
 require_line "$ROOT/CMakeLists.txt" 'set(CPACK_GENERATOR "NSIS")'
 require_line "$ROOT/CMakeLists.txt" 'set(CPACK_GENERATOR "DEB")'
 require_line "$ROOT/CMakeLists.txt" "if(ANDROID)"
+require_line "$ROOT/CMakeLists.txt" "render-android-icons.cmake"
+require_line "$ROOT/android/AndroidManifest.xml" "android:icon=\"@mipmap/ic_launcher\""
+require_line "$ROOT/android/res/mipmap-anydpi-v26/ic_launcher.xml" "adaptive-icon"
 
 if grep -q 'windows-mingw' "$ROOT/build-linux.sh"; then
     echo "build-linux.sh must not use the Windows preset" >&2

@@ -48,12 +48,17 @@ qt_add_executable(waterfall
         src/SettingsDialog.cpp
         src/AudioPermission.cpp
         src/AudioRingBuffer.cpp
+        src/PcmHistory.cpp
+        src/WavFile.cpp
+        src/RecordingSave.cpp
         src/FftEngine.cpp
         src/Palette.cpp
         src/AudioPipeline.cpp
         src/AppIcon.cpp
         src/ScreenAwake.cpp
         src/SpectrogramWidget.cpp
+        src/AboutDialog.cpp
+        resources/about.qrc
 )
 set_target_properties(waterfall PROPERTIES
         AUTOMOC ON
@@ -65,9 +70,46 @@ if(WIN32)
 endif()
 target_include_directories(waterfall PRIVATE src)
 if(ANDROID)
-    set_target_properties(waterfall PROPERTIES
-            QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_SOURCE_DIR}/android"
+    target_sources(waterfall PRIVATE src/AndroidEncoder.cpp src/AndroidDocument.cpp)
+    # ACTION_CREATE_DOCUMENT needs QtAndroidPrivate::startActivity. Those headers live in
+    # the versioned private include, which the Android kit does not put on the default path.
+    get_target_property(_core_includes Qt6::Core INTERFACE_INCLUDE_DIRECTORIES)
+    set(_qt_private "")
+    foreach(_inc IN LISTS _core_includes)
+        if(EXISTS "${_inc}/QtCore/${Qt6Core_VERSION}/QtCore/private/qandroidextras_p.h")
+            set(_qt_private "${_inc}/QtCore/${Qt6Core_VERSION}")
+        endif()
+    endforeach()
+    if(_qt_private STREQUAL "")
+        message(FATAL_ERROR "Qt Android private headers were not found. Save needs them for the document picker.")
+    endif()
+    target_include_directories(waterfall PRIVATE "${_qt_private}")
+    find_program(WATERFALL_IMAGEMAGICK NAMES convert magick REQUIRED)
+    set(WATERFALL_ANDROID_PACKAGE_DIR "${CMAKE_BINARY_DIR}/android-package")
+    set(WATERFALL_ANDROID_ICON "${WATERFALL_ANDROID_PACKAGE_DIR}/res/mipmap-xxxhdpi/ic_launcher.png")
+    add_custom_command(
+            OUTPUT "${WATERFALL_ANDROID_ICON}"
+            COMMAND "${CMAKE_COMMAND}"
+                    "-DIM=${WATERFALL_IMAGEMAGICK}"
+                    "-DSVG=${CMAKE_SOURCE_DIR}/resources/waterfall.svg"
+                    "-DSRC=${CMAKE_SOURCE_DIR}/android"
+                    "-DOUT=${WATERFALL_ANDROID_PACKAGE_DIR}"
+                    -P "${CMAKE_SOURCE_DIR}/scripts/render-android-icons.cmake"
+            DEPENDS
+                    "${CMAKE_SOURCE_DIR}/scripts/render-android-icons.cmake"
+                    "${CMAKE_SOURCE_DIR}/resources/waterfall.svg"
+                    "${CMAKE_SOURCE_DIR}/android/AndroidManifest.xml"
+                    "${CMAKE_SOURCE_DIR}/android/res/drawable/ic_launcher_foreground.xml"
+                    "${CMAKE_SOURCE_DIR}/android/res/mipmap-anydpi-v26/ic_launcher.xml"
+                    "${CMAKE_SOURCE_DIR}/android/res/mipmap-anydpi-v26/ic_launcher_round.xml"
+                    "${CMAKE_SOURCE_DIR}/android/res/values/colors.xml"
+            VERBATIM
     )
+    add_custom_target(android_icons DEPENDS "${WATERFALL_ANDROID_ICON}")
+    set_target_properties(waterfall PROPERTIES
+            QT_ANDROID_PACKAGE_SOURCE_DIR "${WATERFALL_ANDROID_PACKAGE_DIR}"
+    )
+    cmake_language(DEFER CALL add_dependencies waterfall_make_apk android_icons)
 endif()
 target_link_libraries(waterfall PRIVATE
         Qt::Core
@@ -104,16 +146,21 @@ if(NOT CMAKE_CROSSCOMPILING)
             src/SettingsDialog.cpp
             src/AudioPermission.cpp
             src/AudioRingBuffer.cpp
+            src/PcmHistory.cpp
+            src/WavFile.cpp
+            src/RecordingSave.cpp
             src/FftEngine.cpp
             src/Palette.cpp
             src/AudioPipeline.cpp
             src/AppIcon.cpp
             src/ScreenAwake.cpp
             src/SpectrogramWidget.cpp
+            src/AboutDialog.cpp
+            resources/about.qrc
             tests/audio_test.cpp
     )
     target_include_directories(waterfall_tests PRIVATE src)
-    set_target_properties(waterfall_tests PROPERTIES AUTOMOC ON)
+    set_target_properties(waterfall_tests PROPERTIES AUTOMOC ON AUTORCC ON)
     target_link_libraries(waterfall_tests PRIVATE
             GTest::gtest_main
             Qt::Core

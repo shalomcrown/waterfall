@@ -1,9 +1,11 @@
+#include "AboutDialog.h"
 #include "MainWindow.h"
 #include "SpectrogramWidget.h"
 #include "WaterfallView.h"
 
 #include <QApplication>
 #include <QImage>
+#include <QTextBrowser>
 #include <QPushButton>
 #include <QRgb>
 
@@ -113,6 +115,7 @@ TEST(MainWindow, StopStaysDisabledUntilStart) {
     EXPECT_EQ(window.saveButton()->text(), QStringLiteral("Save"));
     EXPECT_EQ(window.loadButton()->text(), QStringLiteral("Load"));
     EXPECT_EQ(window.configureButton()->text(), QStringLiteral("Configure"));
+    EXPECT_EQ(window.aboutButton()->text(), QStringLiteral("About"));
     window.startButton()->click();
     if (window.stopButton()->isEnabled() == true) {
         EXPECT_FALSE(window.startButton()->isEnabled());
@@ -120,6 +123,27 @@ TEST(MainWindow, StopStaysDisabledUntilStart) {
     }
     EXPECT_TRUE(window.startButton()->isEnabled());
     EXPECT_FALSE(window.stopButton()->isEnabled());
+}
+
+// ================================================================================
+
+TEST(AboutDialog, ShowsTheReadme) {
+    testApp();
+    AboutDialog dialog;
+    QTextBrowser* browser = dialog.text();
+    ASSERT_NE(browser, nullptr);
+    const QString plain = browser->toPlainText();
+    EXPECT_TRUE(plain.contains(QStringLiteral("Waterfall")));
+    EXPECT_TRUE(plain.contains(QStringLiteral("Sample rate")));
+    EXPECT_TRUE(plain.contains(QStringLiteral("right edge")));
+    const QString html = browser->toHtml();
+    EXPECT_TRUE(html.contains(QStringLiteral("<table"), Qt::CaseInsensitive));
+    const bool dragSelects = (browser->textInteractionFlags() & Qt::TextSelectableByMouse) != 0;
+#if defined(Q_OS_ANDROID)
+    EXPECT_FALSE(dragSelects);
+#else
+    EXPECT_TRUE(dragSelects);
+#endif
 }
 
 // ================================================================================

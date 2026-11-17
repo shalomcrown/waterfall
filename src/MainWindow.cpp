@@ -1,10 +1,12 @@
 #include "MainWindow.h"
 
+#include "AboutDialog.h"
 #include "AppIcon.h"
 #include "AppSettings.h"
 #include "AudioPermission.h"
 #include "AudioPipeline.h"
 #include "FftTiming.h"
+#include "RecordingSave.h"
 #include "ScreenAwake.h"
 #include "SettingsDialog.h"
 #include "SpectrogramWidget.h"
@@ -93,11 +95,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                         themedIcon(style, "document-open", QStyle::SP_DialogOpenButton));
     m_configure = makeButton(central, QStringLiteral("Configure"),
                              themedIcon(style, "preferences-system", QStyle::SP_FileDialogDetailedView));
+    m_about = makeButton(central, QStringLiteral("About"),
+                         themedIcon(style, "help-about", QStyle::SP_MessageBoxInformation));
     controls->addWidget(m_start);
     controls->addWidget(m_stop);
     controls->addWidget(m_save);
     controls->addWidget(m_load);
     controls->addWidget(m_configure);
+    controls->addWidget(m_about);
     controls->addStretch(1);
     layout->addLayout(controls);
 
@@ -124,7 +129,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     connect(m_start, &QPushButton::clicked, this, &MainWindow::startCapture);
     connect(m_stop, &QPushButton::clicked, this, &MainWindow::stopCapture);
+    connect(m_save, &QPushButton::clicked, this, &MainWindow::saveRecording);
     connect(m_configure, &QPushButton::clicked, this, &MainWindow::openSettings);
+    connect(m_about, &QPushButton::clicked, this, &MainWindow::openAbout);
     QTimer::singleShot(0, this, &MainWindow::ensureMicrophonePermission);
 }
 
@@ -168,6 +175,7 @@ void MainWindow::startCapture() {
     }
 
     QString error;
+    m_pipeline->setRecordingSeconds(AppSettings::recordingSeconds());
     const bool started =
             m_pipeline->start(selectedInputDevice(), AppSettings::sampleRate(), AppSettings::fftSize(),
                               AppSettings::overlapPercent(), AppSettings::maxFrequencyHz(), AppSettings::palette(), error);
@@ -196,6 +204,29 @@ void MainWindow::stopCapture() {
 
 // ================================================================================
 
+void MainWindow::saveRecording() {
+    if (m_saving == true) {
+        return;
+    }
+    const auto samples = m_pipeline->copyRecording();
+    const int rate = m_pipeline->recordingSampleRate();
+    if (samples.empty() == true || rate < 1) {
+        showAudioError(tr("There is no audio to save. Start capture, then save before you stop."));
+        return;
+    }
+    m_saving = true;
+    m_save->setEnabled(false);
+    QString error;
+    const bool saved = RecordingSave::promptAndWrite(this, rate, samples, error);
+    m_save->setEnabled(true);
+    m_saving = false;
+    if (saved == false && error.isEmpty() == false) {
+        showAudioError(error);
+    }
+}
+
+// ================================================================================
+
 void MainWindow::openSettings() {
     const AudioPermission::Status current = AudioPermission::status();
     if (current == AudioPermission::Status::Undetermined) {
@@ -215,6 +246,13 @@ void MainWindow::openSettings() {
     SettingsDialog dialog(this);
     dialog.exec();
     refreshScale();
+}
+
+// ================================================================================
+
+void MainWindow::openAbout() {
+    AboutDialog dialog(this);
+    dialog.exec();
 }
 
 // ================================================================================

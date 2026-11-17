@@ -19,6 +19,8 @@ public:
     QComboBox* fftCombo() const { return m_fft; }
     QComboBox* overlapCombo() const { return m_overlap; }
     QComboBox* maxFrequencyCombo() const { return m_maxFrequency; }
+    QComboBox* recordingCombo() const { return m_recording; }
+    QComboBox* formatCombo() const { return m_format; }
     QCheckBox* keepScreenCheck() const { return m_keepScreen; }
     QComboBox* paletteCombo() const { return m_palette; }
     QPushButton* closeButton() const { return m_close; }
@@ -37,6 +39,8 @@ private:
     QComboBox* m_fft = nullptr;
     QComboBox* m_overlap = nullptr;
     QComboBox* m_maxFrequency = nullptr;
+    QComboBox* m_recording = nullptr;
+    QComboBox* m_format = nullptr;
     QCheckBox* m_keepScreen = nullptr;
     QComboBox* m_palette = nullptr;
     QPushButton* m_close = nullptr;

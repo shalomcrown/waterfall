@@ -12,7 +12,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 > Work merged but not yet shipped. Move entries to a versioned section on release.
 
 ### Added
-- The window is a waterfall display with Start, Stop, Save, Load, and Configure along the bottom. New color columns appear at the right edge and older columns shift left immediately.
+- The window is a waterfall display with Start, Stop, Save, Load, Configure, and About along the bottom. About shows this README. Save writes the recent audio in a format you choose. WAV is always available, and a device that can encode AAC or Opus offers those too. New color columns appear at the right edge and older columns shift left immediately.
+- The Android launcher icon is the waterfall artwork, including an adaptive icon.
 - Configure opens settings for the input and output devices, sample rate, FFT size, and heatmap palette. Changes are stored immediately. Save and Load do not do anything yet.
 - Settings has an explicit Close button. On Android the page is full screen and the exit control is a Back button.
 - Start captures the selected input, buffers the samples, and draws a Hann-windowed FFT column on the waterfall. Overlap defaults to 50% and can be changed in Settings. Columns are released on the hop interval so the scroll stays even.
@@ -23,7 +24,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 -
 
 ### Fixed
--
+- Save on Android no longer fails when the chosen folder is a document location such as Downloads. The file is written with the grant from the system document picker.
 
 ---
 

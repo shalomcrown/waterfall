@@ -20,6 +20,7 @@ public:
     QPushButton* saveButton() const { return m_save; }
     QPushButton* loadButton() const { return m_load; }
     QPushButton* configureButton() const { return m_configure; }
+    QPushButton* aboutButton() const { return m_about; }
     WaterfallView* waterfall() const { return m_waterfall; }
 
 protected:
@@ -29,12 +30,16 @@ private:
     void setRunning(bool running);
     void startCapture();
     void stopCapture();
+    void saveRecording();
     void openSettings();
+    void openAbout();
     void ensureMicrophonePermission();
     void showPermissionDialog();
     void showAudioError(const QString& text);
     void refreshScale();
     void applyKeepAwake();
+
+    bool m_saving = false;
 
     SpectrogramWidget* m_spectrogram = nullptr;
     WaterfallView* m_waterfall = nullptr;
@@ -44,4 +49,5 @@ private:
     QPushButton* m_save = nullptr;
     QPushButton* m_load = nullptr;
     QPushButton* m_configure = nullptr;
+    QPushButton* m_about = nullptr;
 };

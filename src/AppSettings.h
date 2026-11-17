@@ -27,6 +27,14 @@ public:
     static int maxFrequencyHz();
     static void setMaxFrequencyHz(int hz);
 
+    // How many seconds of recent audio Save keeps. Default 5 minutes.
+    static int recordingSeconds();
+    static void setRecordingSeconds(int seconds);
+
+    // "wav", or another id from RecordingSave::formats(). Default wav.
+    static QString recordingFormat();
+    static void setRecordingFormat(const QString& id);
+
     static bool keepScreenOn();
     static void setKeepScreenOn(bool keep);
 
@@ -37,5 +45,6 @@ public:
     static QList<int> fftSizes();
     static QList<int> overlapPercents();
     static QList<int> maxFrequenciesHz();
+    static QList<int> recordingSecondsChoices();
     static QStringList paletteNames();
 };

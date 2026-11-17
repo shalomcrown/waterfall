@@ -3,6 +3,7 @@
 #include "AudioRingBuffer.h"
 #include "FftTiming.h"
 #include "Palette.h"
+#include "WavFile.h"
 
 #include <QAudio>
 #include <QAudioSource>
@@ -64,10 +65,12 @@ bool AudioPipeline::start(const QAudioDevice& device, int sampleRate, int fftSiz
 
     m_format = captureFormat(device, sampleRate);
     if (device.isFormatSupported(m_format) == false || m_format.bytesPerFrame() < 1) {
+        m_history.clear();
         error = tr("The input device rejected the audio format.");
         return false;
     }
     m_sampleRate = m_format.sampleRate() > 0 ? m_format.sampleRate() : sampleRate;
+    m_history.reset(m_sampleRate, m_recordingSeconds);
 
     m_source = std::make_unique<QAudioSource>(device, m_format);
     const int periodSamples = std::max(m_hop * 2, m_sampleRate / 50);
@@ -77,6 +80,7 @@ bool AudioPipeline::start(const QAudioDevice& device, int sampleRate, int fftSiz
     if (m_io == nullptr || m_source->error() != QAudio::NoError) {
         m_source.reset();
         m_io = nullptr;
+        m_history.clear();
         error = tr("The input device did not start.");
         return false;
     }
@@ -109,6 +113,7 @@ void AudioPipeline::stop() {
     }
     m_pending.clear();
     m_filled = 0;
+    m_history.clear();
     std::lock_guard<std::mutex> lock(m_queueMutex);
     m_readyColumns.clear();
 }
@@ -136,6 +141,7 @@ void AudioPipeline::prepareOffline(int fftSize, const QString& paletteName, int 
         m_buffer.reset();
         m_block.clear();
         m_levels.clear();
+        m_history.clear();
         return;
     }
     m_fftSize = fftSize;
@@ -149,15 +155,50 @@ void AudioPipeline::prepareOffline(int fftSize, const QString& paletteName, int 
     m_buffer = std::make_unique<AudioRingBuffer>(capacity);
     m_block.assign(static_cast<size_t>(fftSize), 0.f);
     m_levels.assign(static_cast<size_t>(m_fft.binCount()), 0.f);
+    m_history.reset(m_sampleRate, m_recordingSeconds);
 }
 
 // ================================================================================
 
 size_t AudioPipeline::writeSamples(std::span<const float> samples) {
+    m_history.append(samples);
     if (m_buffer == nullptr) {
         return 0;
     }
     return m_buffer->write(samples);
+}
+
+// ================================================================================
+
+void AudioPipeline::setRecordingSeconds(int seconds) {
+    m_recordingSeconds = seconds > 0 ? seconds : 0;
+    if (m_sampleRate > 0 && isRunning() == false) {
+        m_history.reset(m_sampleRate, m_recordingSeconds);
+    }
+}
+
+// ================================================================================
+
+std::vector<std::int16_t> AudioPipeline::copyRecording() const {
+    return m_history.samples();
+}
+
+// ================================================================================
+
+int AudioPipeline::recordingSampleRate() const {
+    return m_history.sampleRate();
+}
+
+// ================================================================================
+
+bool AudioPipeline::writeRecording(const QString& path, QString& error) const {
+    const std::vector<std::int16_t> samples = m_history.samples();
+    const int rate = m_history.sampleRate();
+    if (samples.empty() == true || rate < 1) {
+        error = tr("There is no audio to save.");
+        return false;
+    }
+    return WavFile::write(path, rate, samples, error);
 }
 
 // ================================================================================

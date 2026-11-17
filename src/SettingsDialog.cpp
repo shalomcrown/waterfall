@@ -1,6 +1,7 @@
 #include "SettingsDialog.h"
 
 #include "AppSettings.h"
+#include "RecordingSave.h"
 #include "ScreenAwake.h"
 
 #include <QAudioDevice>
@@ -120,6 +121,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     m_fft = makeCombo(this, "fftSize");
     m_overlap = makeCombo(this, "overlap");
     m_maxFrequency = makeCombo(this, "maxFrequency");
+    m_recording = makeCombo(this, "recordingSeconds");
+    m_format = makeCombo(this, "recordingFormat");
     m_keepScreen = new QCheckBox(tr("Keep screen on"), this);
     m_keepScreen->setObjectName(QStringLiteral("keepScreenOn"));
     m_keepScreen->setMinimumHeight(44);
@@ -131,6 +134,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     form->addRow(tr("FFT size"), m_fft);
     form->addRow(tr("Overlap"), m_overlap);
     form->addRow(tr("Frequency range"), m_maxFrequency);
+    form->addRow(tr("Save window"), m_recording);
+    form->addRow(tr("Save format"), m_format);
     form->addRow(QString(), m_keepScreen);
     form->addRow(tr("Heatmap"), m_palette);
     layout->addLayout(form);
@@ -168,6 +173,21 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
         selectSaved(m_maxFrequency, AppSettings::maxFrequencyHz(), 8000);
     }
     {
+        QSignalBlocker blocker(m_recording);
+        for (int seconds : AppSettings::recordingSecondsChoices()) {
+            const QString label = seconds == 60 ? tr("1 minute") : tr("%1 minutes").arg(seconds / 60);
+            m_recording->addItem(label, seconds);
+        }
+        selectSaved(m_recording, AppSettings::recordingSeconds(), 300);
+    }
+    {
+        QSignalBlocker blocker(m_format);
+        for (const RecordingFormat& format : RecordingSave::formats()) {
+            m_format->addItem(format.label, format.id);
+        }
+        selectSaved(m_format, AppSettings::recordingFormat(), QStringLiteral("wav"));
+    }
+    {
         QSignalBlocker blocker(m_keepScreen);
         m_keepScreen->setChecked(AppSettings::keepScreenOn());
     }
@@ -198,6 +218,12 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     });
     connect(m_maxFrequency, &QComboBox::currentIndexChanged, this, [this] {
         AppSettings::setMaxFrequencyHz(m_maxFrequency->currentData().toInt());
+    });
+    connect(m_recording, &QComboBox::currentIndexChanged, this, [this] {
+        AppSettings::setRecordingSeconds(m_recording->currentData().toInt());
+    });
+    connect(m_format, &QComboBox::currentIndexChanged, this, [this] {
+        AppSettings::setRecordingFormat(m_format->currentData().toString());
     });
     connect(m_keepScreen, &QCheckBox::toggled, this, [](bool checked) {
         AppSettings::setKeepScreenOn(checked);

@@ -3,9 +3,16 @@
 #include "AudioRingBuffer.h"
 #include "FftEngine.h"
 #include "Palette.h"
+#include "PcmHistory.h"
+#include "RecordingSave.h"
+#include "WavFile.h"
 
 #include <QCoreApplication>
+#include <QDate>
+#include <QDateTime>
+#include <QFile>
 #include <QRgb>
+#include <QTemporaryDir>
 
 #include <gtest/gtest.h>
 
@@ -217,4 +224,130 @@ TEST(AudioPipeline, FrequencyCeilingDropsBinsAboveTheLimit) {
                      [&](const QVector<QRgb>& ready) { column = ready; });
     ASSERT_TRUE(pipeline.processPendingBlock());
     EXPECT_EQ(column.size(), 65);
+}
+
+// ================================================================================
+
+TEST(PcmHistory, KeepsOnlyTheMostRecentSamples) {
+    PcmHistory history;
+    history.reset(8, 1);
+    const float input[] = {0.f, 0.5f, -0.5f, 1.f, -1.f, 0.25f, 0.f, 0.f, 0.5f, -1.f};
+    history.append(input);
+    const std::vector<std::int16_t> kept = history.samples();
+    ASSERT_EQ(kept.size(), 8u);
+    EXPECT_EQ(kept.front(), static_cast<std::int16_t>(std::lround(-0.5f * 32767.f)));
+    EXPECT_EQ(kept.back(), static_cast<std::int16_t>(-32767));
+    EXPECT_EQ(history.sampleRate(), 8);
+}
+
+// ================================================================================
+
+TEST(WavFile, WritesPcm16Mono) {
+    audioApp();
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("clip.wav"));
+    const std::int16_t samples[] = {0, 32767, -32767};
+    QString error;
+    ASSERT_TRUE(WavFile::write(path, 8000, samples, error));
+    EXPECT_TRUE(error.isEmpty());
+
+    QFile file(path);
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    const QByteArray bytes = file.readAll();
+    ASSERT_EQ(bytes.size(), 44 + 6);
+    EXPECT_EQ(QByteArray(bytes.constData(), 4), QByteArray("RIFF"));
+    EXPECT_EQ(QByteArray(bytes.constData() + 8, 4), QByteArray("WAVE"));
+    EXPECT_EQ(static_cast<unsigned char>(bytes.at(20)), 1);
+    EXPECT_EQ(static_cast<unsigned char>(bytes.at(22)), 1);
+    EXPECT_EQ(static_cast<unsigned char>(bytes.at(24)), 8000 & 0xff);
+    EXPECT_EQ(static_cast<unsigned char>(bytes.at(44)), 0);
+    EXPECT_EQ(static_cast<unsigned char>(bytes.at(45)), 0);
+    EXPECT_EQ(static_cast<unsigned char>(bytes.at(46)), 0xff);
+    EXPECT_EQ(static_cast<unsigned char>(bytes.at(47)), 0x7f);
+    EXPECT_EQ(static_cast<unsigned char>(bytes.at(48)), 0x01);
+    EXPECT_EQ(static_cast<unsigned char>(bytes.at(49)), 0x80);
+}
+
+// ================================================================================
+
+TEST(AudioPipeline, RecordingKeepsTheLatestWindowAndClearsOnStop) {
+    audioApp();
+    AudioPipeline pipeline;
+    pipeline.setRecordingSeconds(1);
+    pipeline.prepareOffline(256, QStringLiteral("Gray"), 0, 8, 0);
+    const float input[] = {0.f, 0.5f, -0.5f, 1.f, -1.f, 0.25f, 0.f, 0.f, 0.5f, -1.f};
+    pipeline.writeSamples(input);
+    const std::vector<std::int16_t> kept = pipeline.copyRecording();
+    ASSERT_EQ(kept.size(), 8u);
+    EXPECT_EQ(pipeline.recordingSampleRate(), 8);
+    EXPECT_EQ(kept.back(), static_cast<std::int16_t>(-32767));
+
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    QString error;
+    ASSERT_TRUE(pipeline.writeRecording(dir.filePath(QStringLiteral("take.wav")), error));
+    pipeline.stop();
+    EXPECT_TRUE(pipeline.copyRecording().empty());
+}
+
+// ================================================================================
+
+TEST(RecordingSave, ContentUriIsNotOpenedAsAFile) {
+    audioApp();
+    const QString uri = QStringLiteral("content://com.android.providers.downloads.documents/document/1612.wav");
+    EXPECT_EQ(RecordingSave::isContentUri(uri), true);
+    EXPECT_EQ(RecordingSave::isContentUri(QStringLiteral("/tmp/1612.wav")), false);
+
+    const std::int16_t sample = 0;
+    QString error;
+    EXPECT_EQ(RecordingSave::write(uri, RecordingSave::formatById(QStringLiteral("wav")), 8000,
+                                   std::span<const std::int16_t>(&sample, 1), error),
+              false);
+    EXPECT_EQ(error, QStringLiteral("That location cannot be written. Choose a folder the app is allowed to use."));
+}
+
+// ================================================================================
+
+TEST(RecordingSave, FileNameUsesTheChosenExtension) {
+    audioApp();
+    const QList<RecordingFormat> formats = RecordingSave::formats();
+    ASSERT_EQ(formats.isEmpty(), false);
+    EXPECT_EQ(formats.first().id, QStringLiteral("wav"));
+    EXPECT_EQ(formats.first().extension, QStringLiteral("wav"));
+    EXPECT_EQ(formats.first().mimeType, QStringLiteral("audio/wav"));
+
+    RecordingFormat compressed;
+    compressed.id = QStringLiteral("m4a");
+    compressed.extension = QStringLiteral("m4a");
+    const QString name =
+            RecordingSave::fileName(compressed, QDateTime(QDate(2026, 11, 16), QTime(21, 57, 44)));
+    EXPECT_EQ(name, QStringLiteral("waterfall-20261116-215744.m4a"));
+    EXPECT_EQ(name.endsWith(QStringLiteral(".wav")), false);
+
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const std::int16_t samples[] = {0, 1};
+    QString error;
+    EXPECT_EQ(RecordingSave::write(dir.filePath(QStringLiteral("take.mp3")), compressed, 8000, samples, error), false);
+    EXPECT_EQ(error, QStringLiteral("This format is not available."));
+}
+
+// ================================================================================
+
+TEST(RecordingSave, WritesWavWithoutForcingAnotherSuffix) {
+    audioApp();
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("take.wav"));
+    const std::int16_t samples[] = {0, 32767};
+    QString error;
+    ASSERT_EQ(RecordingSave::write(path, RecordingSave::formatById(QStringLiteral("wav")), 8000, samples, error), true);
+    EXPECT_EQ(error.isEmpty(), true);
+    QFile file(path);
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    const QByteArray bytes = file.readAll();
+    EXPECT_EQ(QByteArray(bytes.constData(), 4), QByteArray("RIFF"));
+    EXPECT_EQ(static_cast<unsigned char>(bytes.at(46)), 0xff);
+    EXPECT_EQ(static_cast<unsigned char>(bytes.at(47)), 0x7f);
 }

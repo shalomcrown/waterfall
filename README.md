@@ -4,11 +4,13 @@ Waterfall is a small Qt application for watching a live spectrogram. It reads th
 
 It builds for Linux (DEB), Windows (NSIS installer, cross-compiled from Linux), and Android (arm64 APK).
 
-Save and Load are on the window but do not do anything yet.
+Source: https://github.com/shalomcrown/waterfall
+
+**Save** writes the recent audio in a format you choose. WAV is always available. A device that can encode AAC or Opus offers those as well. Stop discards audio that was not saved. Load does not do anything yet.
 
 ## Using it
 
-Press **Start** to capture the selected input and draw the waterfall. **Stop** ends capture. **Configure** opens Settings. Changes in Settings are stored immediately.
+Press **Start** to capture the selected input and draw the waterfall. **Stop** ends capture. **Configure** opens Settings. **About** shows this document. Changes in Settings are stored immediately.
 
 | Setting | What it does |
 | --- | --- |
@@ -17,10 +19,12 @@ Press **Start** to capture the selected input and draw the waterfall. **Stop** e
 | FFT size | 1024, 2048, or 4096. Default 2048. |
 | Overlap | 0%, 25%, 50%, 75%, or 87.5%. Default 50%. Higher overlap scrolls faster. |
 | Frequency range | 4, 8, 12, 16, or 24 kHz, or the full range up to Nyquist. Default 8 kHz. Speech fits in 4–8 kHz. Birdsong usually needs more. |
+| Save window | How much recent audio Save keeps: 1, 2, 5, 10, or 30 minutes. Default 5 minutes. |
+| Save format | WAV, or a compressed format this device can encode. Default WAV. Save remembers the last choice. |
 | Keep screen on | Stops the display from sleeping while the app is open. On Android this is a window flag. On Linux it asks the session not to go idle. |
 | Heatmap | Gray, Viridis, Magma, Inferno, Plasma, Turbo, Jet, Hot, or Cool. Default Viridis. |
 
-Overlap and frequency range apply the next time you press Start. Keep screen on applies as soon as you toggle it.
+Overlap, frequency range, and the save window apply the next time you press Start. Keep screen on applies as soon as you toggle it. Save uses the sample rate the device actually captured. Choosing an existing file replaces that file. On Android, Save asks for the format and then opens the system document picker, so a folder such as Downloads can be written.
 
 The scale on the left is frequency. The scale along the bottom is time and moves with the scroll. The right edge is now.
 
@@ -52,7 +56,7 @@ Linux uses the distribution Qt (`qt6-base-dev` and `qt6-multimedia-dev`). Window
 ./build-android.sh     # dist/waterfall-<version>-arm64-v8a.apk
 ```
 
-The Linux package installs a desktop entry and icon, so the app shows up in the Ubuntu launcher and sidebar.
+The Linux package installs a desktop entry and icon, so the app shows up in the Ubuntu launcher and sidebar. The Android launcher icon is the same artwork. `install-prereqs.sh --mode android` installs ImageMagick, which the Android build uses to turn that SVG into the launcher sizes.
 
 ### Run from a build tree
 

@@ -82,6 +82,34 @@ void AppSettings::setMaxFrequencyHz(int hz) {
 
 // ================================================================================
 
+int AppSettings::recordingSeconds() {
+    return store().value(QStringLiteral("audio/recordingSeconds"), 300).toInt();
+}
+
+// ================================================================================
+
+void AppSettings::setRecordingSeconds(int seconds) {
+    store().setValue(QStringLiteral("audio/recordingSeconds"), seconds);
+}
+
+// ================================================================================
+
+QString AppSettings::recordingFormat() {
+    const QString id = store().value(QStringLiteral("audio/recordingFormat"), QStringLiteral("wav")).toString();
+    if (id.isEmpty() == true) {
+        return QStringLiteral("wav");
+    }
+    return id;
+}
+
+// ================================================================================
+
+void AppSettings::setRecordingFormat(const QString& id) {
+    store().setValue(QStringLiteral("audio/recordingFormat"), id);
+}
+
+// ================================================================================
+
 bool AppSettings::keepScreenOn() {
     return store().value(QStringLiteral("display/keepScreenOn"), false).toBool();
 }
@@ -126,6 +154,12 @@ QList<int> AppSettings::overlapPercents() {
 
 QList<int> AppSettings::maxFrequenciesHz() {
     return {4000, 8000, 12000, 16000, 24000, 0};
+}
+
+// ================================================================================
+
+QList<int> AppSettings::recordingSecondsChoices() {
+    return {60, 120, 300, 600, 1800};
 }
 
 // ================================================================================
