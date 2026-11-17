@@ -1,14 +1,19 @@
 #include "AppSettings.h"
+#include "AudioClip.h"
 #include "AudioPipeline.h"
 #include "AudioRingBuffer.h"
 #include "FftEngine.h"
+#include "FftTiming.h"
 #include "Palette.h"
 #include "PcmHistory.h"
+#include "Mp3File.h"
 #include "RecordingSave.h"
 #include "WavFile.h"
 
 #include <QCoreApplication>
 #include <QDate>
+#include <QElapsedTimer>
+#include <QEventLoop>
 #include <QDateTime>
 #include <QFile>
 #include <QRgb>
@@ -187,6 +192,47 @@ TEST(AudioPipeline, SineBecomesAColumnWithLowFrequencyAtTheBottom) {
 
 // ================================================================================
 
+TEST(FrequencyScale, FiveHertzIsTheBottomOfTheLogScale) {
+    EXPECT_NEAR(frequencyFromBottom(5.0, 8000.0, true, 5.0), 0.0, 1e-9);
+    EXPECT_NEAR(frequencyFromBottom(8000.0, 8000.0, true, 5.0), 1.0, 1e-6);
+    const double place = frequencyFromBottom(100.0, 8000.0, true, 5.0);
+    EXPECT_GT(place, 0.35);
+    EXPECT_LT(place, 0.5);
+    EXPECT_NEAR(frequencyFromBottom(100.0, 8000.0, false, 5.0), 100.0 / 8000.0, 1e-9);
+}
+
+// ================================================================================
+
+TEST(AudioPipeline, LogScaleLiftsALowTone) {
+    audioApp();
+    constexpr int size = 256;
+    constexpr int bin = 8;
+    AudioPipeline pipeline;
+    pipeline.prepareOffline(size, QStringLiteral("Viridis"), 0, 16000);
+    pipeline.setFrequencyDisplay(true, 5);
+    QVector<QRgb> column;
+    QObject::connect(&pipeline, &AudioPipeline::columnReady, &pipeline, [&](const QVector<QRgb>& ready) { column = ready; });
+    const std::vector<float> input = sine(size, bin);
+    EXPECT_EQ(pipeline.writeSamples(input), input.size());
+    ASSERT_TRUE(pipeline.processPendingBlock());
+    const int bins = size / 2 + 1;
+    ASSERT_EQ(column.size(), bins);
+    int peak = 0;
+    int peakDistance = 0;
+    const QRgb quiet = column.back();
+    for (int i = 0; i < column.size(); ++i) {
+        const int distance = std::abs(qRed(column.at(i)) - qRed(quiet)) + std::abs(qGreen(column.at(i)) - qGreen(quiet)) +
+                             std::abs(qBlue(column.at(i)) - qBlue(quiet));
+        if (distance > peakDistance) {
+            peakDistance = distance;
+            peak = i;
+        }
+    }
+    EXPECT_LT(peak, bins / 2);
+}
+
+// ================================================================================
+
 TEST(AudioPipeline, HalfOverlapAdvancesByHalfAWindow) {
     audioApp();
     constexpr int size = 256;
@@ -271,7 +317,7 @@ TEST(WavFile, WritesPcm16Mono) {
 
 // ================================================================================
 
-TEST(AudioPipeline, RecordingKeepsTheLatestWindowAndClearsOnStop) {
+TEST(AudioPipeline, RecordingSurvivesStopUntilTheNextSession) {
     audioApp();
     AudioPipeline pipeline;
     pipeline.setRecordingSeconds(1);
@@ -283,12 +329,20 @@ TEST(AudioPipeline, RecordingKeepsTheLatestWindowAndClearsOnStop) {
     EXPECT_EQ(pipeline.recordingSampleRate(), 8);
     EXPECT_EQ(kept.back(), static_cast<std::int16_t>(-32767));
 
+    pipeline.stop();
+    pipeline.setRecordingSeconds(60);
+    const std::vector<std::int16_t> afterStop = pipeline.copyRecording();
+    ASSERT_EQ(afterStop.size(), 8u);
+    EXPECT_EQ(afterStop.back(), static_cast<std::int16_t>(-32767));
+    EXPECT_EQ(pipeline.recordingSampleRate(), 8);
+
     QTemporaryDir dir;
     ASSERT_TRUE(dir.isValid());
     QString error;
     ASSERT_TRUE(pipeline.writeRecording(dir.filePath(QStringLiteral("take.wav")), error));
-    pipeline.stop();
-    EXPECT_TRUE(pipeline.copyRecording().empty());
+
+    pipeline.prepareOffline(256, QStringLiteral("Gray"), 0, 8, 0);
+    EXPECT_EQ(pipeline.copyRecording().empty(), true);
 }
 
 // ================================================================================
@@ -350,4 +404,113 @@ TEST(RecordingSave, WritesWavWithoutForcingAnotherSuffix) {
     EXPECT_EQ(QByteArray(bytes.constData(), 4), QByteArray("RIFF"));
     EXPECT_EQ(static_cast<unsigned char>(bytes.at(46)), 0xff);
     EXPECT_EQ(static_cast<unsigned char>(bytes.at(47)), 0x7f);
+}
+
+// ================================================================================
+
+TEST(RecordingSave, WritesMp3OnEveryPlatform) {
+    audioApp();
+    const QList<RecordingFormat> formats = RecordingSave::formats();
+    ASSERT_GE(formats.size(), 2);
+    EXPECT_EQ(formats.at(1).id, QStringLiteral("mp3"));
+    EXPECT_EQ(formats.at(1).extension, QStringLiteral("mp3"));
+    EXPECT_EQ(formats.at(1).mimeType, QStringLiteral("audio/mpeg"));
+
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    std::vector<std::int16_t> samples(1600);
+    for (size_t i = 0; i < samples.size(); ++i) {
+        samples[i] = static_cast<std::int16_t>(8000.0 * std::sin(2.0 * 3.141592653589793 * 440.0 * static_cast<double>(i) / 8000.0));
+    }
+    const QString path = dir.filePath(QStringLiteral("take.mp3"));
+    QString error;
+    ASSERT_EQ(RecordingSave::write(path, RecordingSave::formatById(QStringLiteral("mp3")), 8000, samples, error), true);
+    EXPECT_EQ(error.isEmpty(), true);
+    QFile file(path);
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    const QByteArray bytes = file.read(4);
+    ASSERT_GE(bytes.size(), 2);
+    const auto first = static_cast<unsigned char>(bytes.at(0));
+    const auto second = static_cast<unsigned char>(bytes.at(1));
+    const bool frame = first == 0xff && (second & 0xe0) == 0xe0;
+    const bool id3 = bytes.startsWith("ID3");
+    EXPECT_EQ(frame || id3, true);
+}
+
+// ================================================================================
+
+TEST(RecordingSave, RejectsMp3AtAnUnsupportedRate) {
+    audioApp();
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const std::int16_t sample = 0;
+    QString error;
+    EXPECT_EQ(RecordingSave::write(dir.filePath(QStringLiteral("high.mp3")), RecordingSave::formatById(QStringLiteral("mp3")),
+                                   192000, std::span<const std::int16_t>(&sample, 1), error),
+              false);
+    EXPECT_EQ(error, QStringLiteral("MP3 cannot be saved at 192000 Hz. Save as WAV instead."));
+}
+
+// ================================================================================
+
+TEST(AudioClip, ReadsTheWavItWrites) {
+    audioApp();
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const std::int16_t samples[] = {0, 1000, -1000, 32767};
+    QString error;
+    const QString path = dir.filePath(QStringLiteral("tone.wav"));
+    ASSERT_TRUE(WavFile::write(path, 8000, samples, error));
+    AudioClip clip;
+    ASSERT_TRUE(AudioClip::load(path, clip, error));
+    EXPECT_EQ(clip.sampleRate, 8000);
+    ASSERT_EQ(clip.samples.size(), 4u);
+    EXPECT_EQ(clip.samples[1], 1000);
+    EXPECT_EQ(clip.samples[2], -1000);
+    EXPECT_EQ(clip.samples[3], 32767);
+}
+
+// ================================================================================
+
+TEST(AudioClip, ReadsAnMp3ItWrote) {
+    audioApp();
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    std::vector<std::int16_t> samples(1600);
+    for (size_t i = 0; i < samples.size(); ++i) {
+        samples[i] = static_cast<std::int16_t>(8000.0 * std::sin(2.0 * 3.141592653589793 * 440.0 * static_cast<double>(i) / 8000.0));
+    }
+    QString error;
+    const QString path = dir.filePath(QStringLiteral("tone.mp3"));
+    ASSERT_TRUE(Mp3File::write(path, 8000, samples, error));
+    AudioClip clip;
+    ASSERT_TRUE(AudioClip::load(path, clip, error)) << error.toStdString();
+    EXPECT_EQ(clip.sampleRate, 8000);
+    EXPECT_GT(clip.samples.size(), 0u);
+}
+
+// ================================================================================
+
+TEST(AudioPipeline, PlaybackFeedsTheWaterfall) {
+    audioApp();
+    std::vector<std::int16_t> samples(4000);
+    for (size_t i = 0; i < samples.size(); ++i) {
+        samples[i] = static_cast<std::int16_t>(8000.0 * std::sin(2.0 * 3.141592653589793 * 440.0 * static_cast<double>(i) / 8000.0));
+    }
+    AudioPipeline pipeline;
+    QString error;
+    ASSERT_TRUE(pipeline.loadClip(samples, 8000, error));
+    int columns = 0;
+    QObject::connect(&pipeline, &AudioPipeline::columnReady, [&columns](const QVector<QRgb>&) { ++columns; });
+    ASSERT_TRUE(pipeline.playClip(QAudioDevice(), 256, 0, 0, QStringLiteral("Gray"), error));
+    EXPECT_EQ(pipeline.isPlaying(), true);
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < 500 && columns < 1) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+    }
+    EXPECT_GT(columns, 0);
+    pipeline.pauseClip();
+    EXPECT_EQ(pipeline.isPlaying(), false);
+    EXPECT_EQ(pipeline.clipLoaded(), true);
 }

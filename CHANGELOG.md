@@ -12,19 +12,21 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 > Work merged but not yet shipped. Move entries to a versioned section on release.
 
 ### Added
-- The window is a waterfall display with Start, Stop, Save, Load, Configure, and About along the bottom. About shows this README. Save writes the recent audio in a format you choose. WAV is always available, and a device that can encode AAC or Opus offers those too. New color columns appear at the right edge and older columns shift left immediately.
+- The window is a waterfall display with Start, Stop, Save, Load, Configure, and About along the bottom. About shows this README. Save writes the recent audio in a format you choose. WAV and MP3 are always available, and a device that can encode AAC or Opus offers those too. Load opens a WAV or MP3 file and plays it through the waterfall. During playback the buttons are Play or Pause, and Live. New color columns appear at the right edge and older columns shift left immediately. Both scales draw shorter tick marks between the numbered labels. The frequency scale can be logarithmic, with a floor that defaults to 5 Hz.
 - The Android launcher icon is the waterfall artwork, including an adaptive icon.
 - Configure opens settings for the input and output devices, sample rate, FFT size, and heatmap palette. Changes are stored immediately. Save and Load do not do anything yet.
 - Settings has an explicit Close button. On Android the page is full screen and the exit control is a Back button.
 - Start captures the selected input, buffers the samples, and draws a Hann-windowed FFT column on the waterfall. Overlap defaults to 50% and can be changed in Settings. Columns are released on the hop interval so the scroll stays even.
 - The Linux package installs a desktop entry and a waterfall icon, and the running window uses that icon in the dock.
-- Settings can keep the screen on, and can limit the displayed frequency range. The plot has a frequency scale on the left and a scrolling time scale along the bottom.
+- Settings can keep the screen on, and can limit the displayed frequency range. The plot has a frequency scale on the left and a time scale along the bottom.
 
 ### Changed
 -
 
 ### Fixed
 - Save on Android no longer fails when the chosen folder is a document location such as Downloads. The file is written with the grant from the system document picker.
+- Time labels are spaced for the full width of the display from the first column, so they no longer pile up on the right while the plot is filling.
+- Stop keeps the captured audio. Save still works after Stop. The next Start replaces that audio.
 
 ---
 

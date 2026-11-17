@@ -39,6 +39,85 @@ FetchContent_MakeAvailable(pocketfft)
 add_library(waterfall_pocketfft INTERFACE)
 target_include_directories(waterfall_pocketfft INTERFACE "${pocketfft_SOURCE_DIR}")
 target_compile_definitions(waterfall_pocketfft INTERFACE POCKETFFT_NO_MULTITHREADING)
+# MinGW's msvcrt has no aligned_alloc. PocketFFT's C++17 path calls it and then
+# free(). This one file is C++14 so that header uses malloc and free instead.
+add_library(waterfall_pocketfft_impl STATIC src/PocketFft.cpp)
+target_link_libraries(waterfall_pocketfft_impl PUBLIC waterfall_pocketfft)
+set_target_properties(waterfall_pocketfft_impl PROPERTIES
+        CXX_STANDARD 14
+        CXX_STANDARD_REQUIRED ON
+        POSITION_INDEPENDENT_CODE ON
+)
+
+# LAME 3.100 (LGPL-2.1) encodes the in-memory PCM window to MP3 on every platform.
+# The upstream release has no CMake build, so the encoder sources are compiled here.
+enable_language(C)
+set(lame_archive "${CMAKE_BINARY_DIR}/_deps/lame-3.100.tar.gz")
+set(lame_unpack "${CMAKE_BINARY_DIR}/_deps/lame-src")
+if(NOT EXISTS "${lame_unpack}/libmp3lame/lame.c" AND NOT EXISTS "${lame_unpack}/lame-3.100/libmp3lame/lame.c")
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/_deps")
+    file(DOWNLOAD
+            https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz
+            "${lame_archive}"
+            EXPECTED_HASH SHA256=ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e
+            STATUS lame_download_status
+    )
+    list(GET lame_download_status 0 lame_download_code)
+    if(NOT lame_download_code EQUAL 0)
+        list(GET lame_download_status 1 lame_download_message)
+        message(FATAL_ERROR "Could not download LAME 3.100: ${lame_download_message}")
+    endif()
+    file(ARCHIVE_EXTRACT INPUT "${lame_archive}" DESTINATION "${lame_unpack}")
+endif()
+set(lame_src "${lame_unpack}")
+if(NOT EXISTS "${lame_src}/libmp3lame/lame.c")
+    set(lame_src "${lame_unpack}/lame-3.100")
+endif()
+add_library(waterfall_lame STATIC
+        ${lame_src}/libmp3lame/VbrTag.c
+        ${lame_src}/libmp3lame/bitstream.c
+        ${lame_src}/libmp3lame/encoder.c
+        ${lame_src}/libmp3lame/fft.c
+        ${lame_src}/libmp3lame/gain_analysis.c
+        ${lame_src}/libmp3lame/id3tag.c
+        ${lame_src}/libmp3lame/lame.c
+        ${lame_src}/libmp3lame/newmdct.c
+        ${lame_src}/libmp3lame/presets.c
+        ${lame_src}/libmp3lame/psymodel.c
+        ${lame_src}/libmp3lame/quantize.c
+        ${lame_src}/libmp3lame/quantize_pvt.c
+        ${lame_src}/libmp3lame/reservoir.c
+        ${lame_src}/libmp3lame/set_get.c
+        ${lame_src}/libmp3lame/tables.c
+        ${lame_src}/libmp3lame/takehiro.c
+        ${lame_src}/libmp3lame/util.c
+        ${lame_src}/libmp3lame/vbrquantize.c
+        ${lame_src}/libmp3lame/version.c
+        ${lame_src}/libmp3lame/mpglib_interface.c
+        ${lame_src}/mpglib/common.c
+        ${lame_src}/mpglib/dct64_i386.c
+        ${lame_src}/mpglib/decode_i386.c
+        ${lame_src}/mpglib/interface.c
+        ${lame_src}/mpglib/layer1.c
+        ${lame_src}/mpglib/layer2.c
+        ${lame_src}/mpglib/layer3.c
+        ${lame_src}/mpglib/tabinit.c
+)
+target_include_directories(waterfall_lame PUBLIC
+        ${CMAKE_SOURCE_DIR}/cmake/lame
+        ${lame_src}/include
+        ${lame_src}/libmp3lame
+        ${lame_src}/mpglib
+)
+target_compile_definitions(waterfall_lame PRIVATE HAVE_CONFIG_H)
+set_target_properties(waterfall_lame PROPERTIES
+        C_STANDARD 99
+        C_STANDARD_REQUIRED ON
+        POSITION_INDEPENDENT_CODE ON
+)
+if(NOT WIN32)
+    target_link_libraries(waterfall_lame PUBLIC m)
+endif()
 
 qt_add_executable(waterfall
         main.cpp
@@ -50,6 +129,8 @@ qt_add_executable(waterfall
         src/AudioRingBuffer.cpp
         src/PcmHistory.cpp
         src/WavFile.cpp
+        src/Mp3File.cpp
+        src/AudioClip.cpp
         src/RecordingSave.cpp
         src/FftEngine.cpp
         src/Palette.cpp
@@ -116,7 +197,8 @@ target_link_libraries(waterfall PRIVATE
         Qt::Gui
         Qt::Widgets
         Qt::Multimedia
-        waterfall_pocketfft
+        waterfall_pocketfft_impl
+        waterfall_lame
 )
 if(TARGET Qt6::DBus)
     target_link_libraries(waterfall PRIVATE Qt6::DBus)
@@ -148,6 +230,8 @@ if(NOT CMAKE_CROSSCOMPILING)
             src/AudioRingBuffer.cpp
             src/PcmHistory.cpp
             src/WavFile.cpp
+            src/Mp3File.cpp
+            src/AudioClip.cpp
             src/RecordingSave.cpp
             src/FftEngine.cpp
             src/Palette.cpp
@@ -167,7 +251,8 @@ if(NOT CMAKE_CROSSCOMPILING)
             Qt::Gui
             Qt::Widgets
             Qt::Multimedia
-            waterfall_pocketfft
+            waterfall_pocketfft_impl
+            waterfall_lame
     )
     if(TARGET Qt6::DBus)
         target_link_libraries(waterfall_tests PRIVATE Qt6::DBus)

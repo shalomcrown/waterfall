@@ -1,5 +1,6 @@
 #include "SpectrogramWidget.h"
 
+#include "FftTiming.h"
 #include "WaterfallView.h"
 
 #include <QFont>
@@ -11,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace {
 QString formatHz(double hz) {
@@ -53,6 +55,20 @@ double tickStep(double span) {
 
 // ================================================================================
 
+int axisY(double value, double maximum, int height) {
+    const double across = value / maximum;
+    return height - 1 - static_cast<int>(std::lround(across * static_cast<double>(height - 1)));
+}
+
+// ================================================================================
+
+int axisX(double value, double maximum, int width) {
+    const double across = value / maximum;
+    return width - 1 - static_cast<int>(std::lround(across * static_cast<double>(width - 1)));
+}
+
+// ================================================================================
+
 class FrequencyAxis : public QWidget {
 public:
     explicit FrequencyAxis(QWidget* parent = nullptr) : QWidget(parent) {
@@ -62,7 +78,13 @@ public:
     }
 
     void setMaximumHz(double hz) {
+        setRange(hz, false, 5.0);
+    }
+
+    void setRange(double hz, bool logarithmic, double floorHz) {
         m_maximumHz = hz;
+        m_logarithmic = logarithmic;
+        m_floorHz = floorHz;
         fitWidth();
         update();
     }
@@ -97,24 +119,95 @@ protected:
         font.setPixelSize(12);
 #endif
         painter.setFont(font);
+        if (m_logarithmic == true) {
+            paintLogarithmic(painter);
+            return;
+        }
         const double step = tickStep(m_maximumHz);
+        const int major = width() > 40 ? 8 : 5;
+        const int minor = std::max(3, major / 2);
         for (double hz = 0.0; hz <= m_maximumHz + step * 0.01; hz += step) {
             const double shown = std::min(hz, m_maximumHz);
-            const double fromBottom = shown / m_maximumHz;
-            const int y = height() - 1 - static_cast<int>(std::lround(fromBottom * (height() - 1)));
-            const int tick = width() > 40 ? 8 : 5;
-            painter.drawLine(width() - tick, y, width() - 1, y);
+            const int y = axisY(shown, m_maximumHz, height());
+            painter.drawLine(width() - major, y, width() - 1, y);
             const QString label = formatHz(shown);
-            const QRect bounds(0, y - 8, width() - tick - 1, 16);
+            const QRect bounds(0, y - 8, width() - major - 1, 16);
             painter.drawText(bounds, Qt::AlignRight | Qt::AlignVCenter, label);
             if (shown >= m_maximumHz) {
                 break;
+            }
+            for (int division = 1; division < 5; ++division) {
+                const double mark = hz + step * static_cast<double>(division) / 5.0;
+                if (mark >= m_maximumHz) {
+                    break;
+                }
+                const int markY = axisY(mark, m_maximumHz, height());
+                painter.drawLine(width() - minor, markY, width() - 1, markY);
             }
         }
     }
 
 private:
+    void paintLogarithmic(QPainter& painter) const {
+        const double floor = clampedLogFloorHz(m_maximumHz, m_floorHz);
+        if (m_maximumHz <= floor) {
+            return;
+        }
+        struct Mark {
+            double hz = 0;
+            bool labeled = false;
+        };
+        std::vector<Mark> marks;
+        const double firstDecade = std::pow(10.0, std::floor(std::log10(floor)));
+        for (double decade = firstDecade; decade <= m_maximumHz * 1.001; decade *= 10.0) {
+            for (int digit = 1; digit <= 9; ++digit) {
+                const double hz = static_cast<double>(digit) * decade;
+                if (hz < floor * 0.999 || hz > m_maximumHz * 1.001) {
+                    continue;
+                }
+                marks.push_back(Mark{hz, digit == 1 || digit == 2 || digit == 5});
+            }
+        }
+        bool topLabeled = false;
+        for (Mark& mark : marks) {
+            if (std::abs(mark.hz - m_maximumHz) / m_maximumHz < 0.02) {
+                mark.labeled = true;
+                topLabeled = true;
+            }
+        }
+        if (topLabeled == false) {
+            marks.push_back(Mark{m_maximumHz, true});
+        }
+        const int major = width() > 40 ? 8 : 5;
+        const int minor = std::max(3, major / 2);
+        int previousTop = height() + 20;
+        for (const Mark& mark : marks) {
+            const double fromBottom = frequencyFromBottom(mark.hz, m_maximumHz, true, floor);
+            const int y = height() - 1 - static_cast<int>(std::lround(fromBottom * static_cast<double>(height() - 1)));
+            const int length = mark.labeled ? major : minor;
+            painter.drawLine(width() - length, y, width() - 1, y);
+            if (mark.labeled == false) {
+                continue;
+            }
+            const QString label = formatHz(mark.hz);
+            QRect bounds(0, y - 8, width() - major - 1, 16);
+            if (bounds.top() < 0) {
+                bounds.moveTop(0);
+            }
+            if (bounds.bottom() > height() - 1) {
+                bounds.moveBottom(height() - 1);
+            }
+            if (bounds.bottom() > previousTop - 2) {
+                continue;
+            }
+            painter.drawText(bounds, Qt::AlignRight | Qt::AlignVCenter, label);
+            previousTop = bounds.top();
+        }
+    }
+
     double m_maximumHz = 0;
+    bool m_logarithmic = false;
+    double m_floorHz = 5;
 };
 
 // ================================================================================
@@ -143,38 +236,42 @@ protected:
         if (image.isNull() == true || image.width() < 1) {
             return;
         }
-        const int filled = m_view->columnsFilled();
-        if (filled < 1) {
-            return;
-        }
         painter.setPen(QColor(186, 196, 206));
         QFont font = painter.font();
         font.setPixelSize(12);
         painter.setFont(font);
+        const QFontMetrics metrics(font);
 
-        const int visibleColumns = std::min(filled, image.width());
-        const double visibleSeconds = visibleColumns * m_secondsPerColumn;
-        const double step = tickStep(std::max(visibleSeconds, m_secondsPerColumn));
-        const double widgetPerImage = static_cast<double>(width()) / static_cast<double>(image.width());
-        const int newest = image.width() - 1;
-        const int oldest = image.width() - visibleColumns;
-        for (double age = 0.0; age <= visibleSeconds + step * 0.01; age += step) {
-            // The right edge is the newest sample. Older samples sit to its left.
-            const int imageX = newest - static_cast<int>(std::lround(age / m_secondsPerColumn));
-            if (imageX < oldest) {
-                break;
-            }
-            const int x = static_cast<int>(std::lround((imageX + 0.5) * widgetPerImage));
+        // Labels stay put for the whole width. Spacing follows that full span,
+        // so the first columns do not pile every tick on the right edge.
+        const double maximumSeconds = static_cast<double>(image.width()) * m_secondsPerColumn;
+        const double step = tickStep(maximumSeconds);
+        int previousLeft = width();
+        for (double age = 0.0; age <= maximumSeconds + step * 0.01; age += step) {
+            const int x = axisX(age, maximumSeconds, width());
             painter.drawLine(x, 0, x, 6);
+            for (int division = 1; division < 5; ++division) {
+                const double mark = age + step * static_cast<double>(division) / 5.0;
+                if (mark >= maximumSeconds) {
+                    break;
+                }
+                const int markX = axisX(mark, maximumSeconds, width());
+                painter.drawLine(markX, 0, markX, 3);
+            }
             const QString label = QString::number(age, 'f', age < 10.0 ? 1 : 0) + QStringLiteral(" s");
-            QRect bounds(x - 28, 8, 56, 16);
+            const int textWidth = metrics.horizontalAdvance(label);
+            QRect bounds(x - textWidth / 2, 8, textWidth, 16);
             if (bounds.left() < 0) {
                 bounds.moveLeft(0);
             }
-            if (bounds.right() > width()) {
+            if (bounds.right() > width() - 1) {
                 bounds.moveRight(width() - 1);
             }
+            if (bounds.right() >= previousLeft) {
+                continue;
+            }
             painter.drawText(bounds, Qt::AlignHCenter | Qt::AlignVCenter, label);
+            previousLeft = bounds.left() - 6;
         }
     }
 
@@ -213,11 +310,11 @@ void SpectrogramWidget::appendColumn(std::span<const QRgb> bins) {
 
 // ================================================================================
 
-void SpectrogramWidget::setScale(double secondsPerColumn, double maximumHz) {
+void SpectrogramWidget::setScale(double secondsPerColumn, double maximumHz, bool logarithmic, double floorHz) {
     m_secondsPerColumn = secondsPerColumn;
     m_maximumHz = maximumHz;
     if (auto* frequency = dynamic_cast<FrequencyAxis*>(m_frequency)) {
-        frequency->setMaximumHz(maximumHz);
+        frequency->setRange(maximumHz, logarithmic, floorHz);
     }
     if (auto* time = dynamic_cast<TimeAxis*>(m_time)) {
         time->setSecondsPerColumn(secondsPerColumn);

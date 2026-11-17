@@ -5,6 +5,7 @@
 
 #include <QAudioDevice>
 #include <QAudioFormat>
+#include <QElapsedTimer>
 #include <QObject>
 #include <QRgb>
 #include <QString>
@@ -19,6 +20,7 @@
 #include <thread>
 #include <vector>
 
+class QAudioSink;
 class QAudioSource;
 class QIODevice;
 class QTimer;
@@ -40,10 +42,24 @@ public:
                const QString& paletteName, QString& error);
     void stop();
     bool isRunning() const { return m_running.load(std::memory_order_acquire) == true; }
+
+    // A loaded file replaces live capture. Play draws the waterfall from the file
+    // and, when an output device is available, plays it there too.
+    bool loadClip(std::span<const std::int16_t> samples, int sampleRate, QString& error);
+    void clearClip();
+    bool clipLoaded() const { return m_clip.empty() == false; }
+    bool isPlaying() const { return m_playing; }
+    size_t clipPosition() const { return m_clipPos; }
+    size_t clipLength() const { return m_clip.size(); }
+    int clipSampleRate() const { return m_clipRate; }
+    bool playClip(const QAudioDevice& device, int fftSize, int overlapPercent, int maxFrequencyHz,
+                  const QString& paletteName, QString& error);
+    void pauseClip();
     int hopSamples() const { return m_hop; }
     int captureSampleRate() const { return m_sampleRate; }
 
-    // How much recent audio Save can write. Applies on the next Start.
+    // How much recent audio Save can write. The new length applies on the next Start.
+    // Stop keeps the samples so they can still be saved.
     void setRecordingSeconds(int seconds);
     int recordingSeconds() const { return m_recordingSeconds; }
     std::vector<std::int16_t> copyRecording() const;
@@ -51,15 +67,21 @@ public:
     bool writeRecording(const QString& path, QString& error) const;
 
     void prepareOffline(int fftSize, const QString& paletteName, int overlapPercent = 0, int sampleRate = 0,
-                        int maxFrequencyHz = 0);
+                        int maxFrequencyHz = 0, bool keepRecording = false);
+    // Display mapping for the next column. It does not restart capture.
+    void setFrequencyDisplay(bool logarithmic, int floorHz);
     size_t writeSamples(std::span<const float> samples);
     bool processPendingBlock();
 
 signals:
     void columnReady(const QVector<QRgb>& column);
+    void playbackFinished();
 
 private:
     void onReadyRead();
+    void onPlaybackTick();
+    void endPlayback();
+    void openPlaybackSink(const QAudioDevice& device);
     void threadMain();
     void consumeBytes(const char* data, int byteCount);
     void releaseDueColumns();
@@ -75,6 +97,9 @@ private:
     int m_filled = 0;
     int m_sampleRate = 0;
     int m_maxFrequencyHz = 0;
+    std::atomic<bool> m_logarithmic{false};
+    std::atomic<int> m_logFloorHz{5};
+    std::atomic<int> m_displayGeneration{0};
     int m_recordingSeconds = 0;
     PcmHistory m_history;
     QAudioFormat m_format;
@@ -83,6 +108,16 @@ private:
     QByteArray m_pending;
     std::atomic<bool> m_running{false};
     std::thread m_thread;
+    std::vector<std::int16_t> m_clip;
+    int m_clipRate = 0;
+    size_t m_clipPos = 0;
+    bool m_playing = false;
+    std::unique_ptr<QAudioSink> m_sink;
+    QIODevice* m_sinkIo = nullptr;
+    QAudioFormat m_playbackFormat;
+    QTimer* m_playbackTimer = nullptr;
+    QElapsedTimer m_playbackClock;
+    qint64 m_playbackOriginSamples = 0;
     std::vector<float> m_block;
     std::vector<float> m_levels;
     std::mutex m_queueMutex;

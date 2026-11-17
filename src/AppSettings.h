@@ -27,6 +27,14 @@ public:
     static int maxFrequencyHz();
     static void setMaxFrequencyHz(int hz);
 
+    // Logarithmic frequency scale. Linear is the default.
+    static bool logarithmicFrequency();
+    static void setLogarithmicFrequency(bool logarithmic);
+
+    // Lowest frequency drawn when the scale is logarithmic. Default 5 Hz.
+    static int logFloorHz();
+    static void setLogFloorHz(int hz);
+
     // How many seconds of recent audio Save keeps. Default 5 minutes.
     static int recordingSeconds();
     static void setRecordingSeconds(int seconds);
@@ -45,6 +53,7 @@ public:
     static QList<int> fftSizes();
     static QList<int> overlapPercents();
     static QList<int> maxFrequenciesHz();
+    static QList<int> logFloorChoices();
     static QList<int> recordingSecondsChoices();
     static QStringList paletteNames();
 };

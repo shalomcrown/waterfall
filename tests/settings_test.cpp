@@ -48,6 +48,8 @@ TEST(AppSettings, DefaultsAndImmediateRoundTrip) {
     EXPECT_EQ(AppSettings::fftSize(), 2048);
     EXPECT_EQ(AppSettings::overlapPercent(), 50);
     EXPECT_EQ(AppSettings::maxFrequencyHz(), 8000);
+    EXPECT_EQ(AppSettings::logarithmicFrequency(), false);
+    EXPECT_EQ(AppSettings::logFloorHz(), 5);
     EXPECT_EQ(AppSettings::recordingSeconds(), 300);
     EXPECT_EQ(AppSettings::recordingFormat(), QStringLiteral("wav"));
     EXPECT_FALSE(AppSettings::keepScreenOn());
@@ -60,6 +62,8 @@ TEST(AppSettings, DefaultsAndImmediateRoundTrip) {
     AppSettings::setFftSize(4096);
     AppSettings::setOverlapPercent(75);
     AppSettings::setMaxFrequencyHz(4000);
+    AppSettings::setLogarithmicFrequency(true);
+    AppSettings::setLogFloorHz(20);
     AppSettings::setRecordingSeconds(60);
     AppSettings::setRecordingFormat(QStringLiteral("m4a"));
     AppSettings::setKeepScreenOn(true);
@@ -71,6 +75,8 @@ TEST(AppSettings, DefaultsAndImmediateRoundTrip) {
     EXPECT_EQ(AppSettings::fftSize(), 4096);
     EXPECT_EQ(AppSettings::overlapPercent(), 75);
     EXPECT_EQ(AppSettings::maxFrequencyHz(), 4000);
+    EXPECT_EQ(AppSettings::logarithmicFrequency(), true);
+    EXPECT_EQ(AppSettings::logFloorHz(), 20);
     EXPECT_EQ(AppSettings::recordingSeconds(), 60);
     EXPECT_EQ(AppSettings::recordingFormat(), QStringLiteral("m4a"));
     EXPECT_TRUE(AppSettings::keepScreenOn());
@@ -112,6 +118,18 @@ TEST(SettingsDialog, ChangingAPulldownSavesImmediately) {
     EXPECT_EQ(range->currentData().toInt(), 8000);
     range->setCurrentIndex(range->findData(0));
     EXPECT_EQ(AppSettings::maxFrequencyHz(), 0);
+    QComboBox* scale = dialog.frequencyScaleCombo();
+    ASSERT_NE(scale, nullptr);
+    EXPECT_EQ(scale->currentData().toString(), QStringLiteral("linear"));
+    QComboBox* floor = dialog.logFloorCombo();
+    ASSERT_NE(floor, nullptr);
+    EXPECT_EQ(floor->currentData().toInt(), 5);
+    EXPECT_FALSE(floor->isEnabled());
+    scale->setCurrentIndex(scale->findData(QStringLiteral("log")));
+    EXPECT_EQ(AppSettings::logarithmicFrequency(), true);
+    EXPECT_TRUE(floor->isEnabled());
+    floor->setCurrentIndex(floor->findData(20));
+    EXPECT_EQ(AppSettings::logFloorHz(), 20);
     QComboBox* recording = dialog.recordingCombo();
     ASSERT_NE(recording, nullptr);
     EXPECT_EQ(recording->currentData().toInt(), 300);
@@ -120,6 +138,7 @@ TEST(SettingsDialog, ChangingAPulldownSavesImmediately) {
     QComboBox* format = dialog.formatCombo();
     ASSERT_NE(format, nullptr);
     EXPECT_GE(format->findData(QStringLiteral("wav")), 0);
+    EXPECT_GE(format->findData(QStringLiteral("mp3")), 0);
     EXPECT_EQ(format->currentData().toString(), QStringLiteral("wav"));
     ASSERT_NE(dialog.keepScreenCheck(), nullptr);
     dialog.keepScreenCheck()->setChecked(true);

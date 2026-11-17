@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 
 // Shared by the pipeline and the axes. 87 means 87.5% overlap.
 inline int waterfallHop(int fftSize, int overlapPercent) {
@@ -27,4 +28,47 @@ inline double displayedMaxHz(int sampleRate, int maxFrequencyHz) {
         return nyquist;
     }
     return static_cast<double>(maxFrequencyHz);
+}
+
+// ================================================================================
+
+// A logarithmic scale starts at this floor. It has to stay below the top.
+inline double clampedLogFloorHz(double maximumHz, double floorHz) {
+    const double requested = floorHz > 0.0 ? floorHz : 5.0;
+    if (maximumHz <= requested) {
+        return maximumHz > 1.0 ? 1.0 : maximumHz * 0.5;
+    }
+    return requested;
+}
+
+// ================================================================================
+
+// 0 is the bottom of the axis. 1 is the top.
+inline double frequencyFromBottom(double hz, double maximumHz, bool logarithmic, double floorHz) {
+    if (maximumHz <= 0.0) {
+        return 0.0;
+    }
+    if (logarithmic == false) {
+        return std::clamp(hz / maximumHz, 0.0, 1.0);
+    }
+    const double floor = clampedLogFloorHz(maximumHz, floorHz);
+    if (maximumHz <= floor) {
+        return std::clamp(hz / maximumHz, 0.0, 1.0);
+    }
+    const double clamped = std::clamp(hz, floor, maximumHz);
+    return std::log(clamped / floor) / std::log(maximumHz / floor);
+}
+
+// ================================================================================
+
+inline double hzFromBottom(double fractionFromBottom, double maximumHz, bool logarithmic, double floorHz) {
+    const double fraction = std::clamp(fractionFromBottom, 0.0, 1.0);
+    if (logarithmic == false || maximumHz <= 0.0) {
+        return fraction * maximumHz;
+    }
+    const double floor = clampedLogFloorHz(maximumHz, floorHz);
+    if (maximumHz <= floor) {
+        return fraction * maximumHz;
+    }
+    return floor * std::pow(maximumHz / floor, fraction);
 }

@@ -7,14 +7,14 @@
 
 class WaterfallView;
 
-// Waterfall plus a frequency scale on the left and a scrolling time scale below.
+// Waterfall plus a frequency scale on the left and a fixed time scale below.
 class SpectrogramWidget : public QWidget {
 public:
     explicit SpectrogramWidget(QWidget* parent = nullptr);
 
     WaterfallView* waterfall() const { return m_waterfall; }
     void appendColumn(std::span<const QRgb> bins);
-    void setScale(double secondsPerColumn, double maximumHz);
+    void setScale(double secondsPerColumn, double maximumHz, bool logarithmic = false, double floorHz = 5);
     double maximumHz() const { return m_maximumHz; }
     double secondsPerColumn() const { return m_secondsPerColumn; }
 

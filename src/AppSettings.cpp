@@ -82,6 +82,36 @@ void AppSettings::setMaxFrequencyHz(int hz) {
 
 // ================================================================================
 
+bool AppSettings::logarithmicFrequency() {
+    return store().value(QStringLiteral("display/frequencyScale"), QStringLiteral("linear")).toString() ==
+           QStringLiteral("log");
+}
+
+// ================================================================================
+
+void AppSettings::setLogarithmicFrequency(bool logarithmic) {
+    store().setValue(QStringLiteral("display/frequencyScale"),
+                     logarithmic ? QStringLiteral("log") : QStringLiteral("linear"));
+}
+
+// ================================================================================
+
+int AppSettings::logFloorHz() {
+    const int hz = store().value(QStringLiteral("display/logFloorHz"), 5).toInt();
+    if (logFloorChoices().contains(hz) == true) {
+        return hz;
+    }
+    return 5;
+}
+
+// ================================================================================
+
+void AppSettings::setLogFloorHz(int hz) {
+    store().setValue(QStringLiteral("display/logFloorHz"), hz);
+}
+
+// ================================================================================
+
 int AppSettings::recordingSeconds() {
     return store().value(QStringLiteral("audio/recordingSeconds"), 300).toInt();
 }
@@ -154,6 +184,12 @@ QList<int> AppSettings::overlapPercents() {
 
 QList<int> AppSettings::maxFrequenciesHz() {
     return {4000, 8000, 12000, 16000, 24000, 0};
+}
+
+// ================================================================================
+
+QList<int> AppSettings::logFloorChoices() {
+    return {5, 10, 20, 50, 100};
 }
 
 // ================================================================================

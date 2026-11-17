@@ -6,7 +6,11 @@ It builds for Linux (DEB), Windows (NSIS installer, cross-compiled from Linux), 
 
 Source: https://github.com/shalomcrown/waterfall
 
-**Save** writes the recent audio in a format you choose. WAV is always available. A device that can encode AAC or Opus offers those as well. Stop discards audio that was not saved. Load does not do anything yet.
+**Save** writes the recent audio in a format you choose. WAV and MP3 are always available. A device that can encode AAC or Opus offers those as well. Stop keeps that audio in memory so you can still save it. The next Start replaces it.
+
+**Load** opens a WAV or MP3 file. The first button becomes **Play**, and **Pause** while the file is playing. The waterfall follows the file. **Live** stops the file and switches back to the microphone.
+
+MP3 is encoded with [LAME](https://lame.sourceforge.io/) 3.100, which is licensed under the LGPL-2.1. The build downloads that release and compiles it in. The source of that release is the corresponding source offer. A sample rate LAME cannot encode, including 96 kHz and 192 kHz, is refused, and WAV is still available.
 
 ## Using it
 
@@ -19,14 +23,16 @@ Press **Start** to capture the selected input and draw the waterfall. **Stop** e
 | FFT size | 1024, 2048, or 4096. Default 2048. |
 | Overlap | 0%, 25%, 50%, 75%, or 87.5%. Default 50%. Higher overlap scrolls faster. |
 | Frequency range | 4, 8, 12, 16, or 24 kHz, or the full range up to Nyquist. Default 8 kHz. Speech fits in 4–8 kHz. Birdsong usually needs more. |
+| Frequency scale | Linear or logarithmic. Default linear. Logarithmic gives the low end more of the picture. |
+| Log floor | Lowest frequency on a logarithmic scale: 5, 10, 20, 50, or 100 Hz. Default 5 Hz. |
 | Save window | How much recent audio Save keeps: 1, 2, 5, 10, or 30 minutes. Default 5 minutes. |
-| Save format | WAV, or a compressed format this device can encode. Default WAV. Save remembers the last choice. |
+| Save format | WAV and MP3 on every platform. AAC and Opus when this device can encode them. Default WAV. Save remembers the last choice. |
 | Keep screen on | Stops the display from sleeping while the app is open. On Android this is a window flag. On Linux it asks the session not to go idle. |
 | Heatmap | Gray, Viridis, Magma, Inferno, Plasma, Turbo, Jet, Hot, or Cool. Default Viridis. |
 
-Overlap, frequency range, and the save window apply the next time you press Start. Keep screen on applies as soon as you toggle it. Save uses the sample rate the device actually captured. Choosing an existing file replaces that file. On Android, Save asks for the format and then opens the system document picker, so a folder such as Downloads can be written.
+Overlap, frequency range, and the save window apply the next time you press Start. Keep screen on applies as soon as you toggle it. The frequency scale and its floor apply when you close Settings, and the waterfall clears so the colors match the axis. Save uses the sample rate the device actually captured. Choosing an existing file replaces that file. On Android, Save asks for the format and then opens the system document picker, so a folder such as Downloads can be written.
 
-The scale on the left is frequency. The scale along the bottom is time and moves with the scroll. The right edge is now.
+The scale on the left is frequency. The scale along the bottom is time, fixed to the full width of the display. The right edge is now, and the left edge is the oldest time that width can show. The colors scroll. The labels stay put. Shorter tick marks sit between the numbered labels on both scales. A logarithmic frequency scale starts at the log floor instead of 0 Hz.
 
 The first time you start, or when you open Settings, the app asks for microphone access if the system has not granted it. On Android you can open the app's system settings from that dialog.
 

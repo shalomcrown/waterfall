@@ -17,6 +17,7 @@ public:
 
     void appendColumn(std::span<const QRgb> bins);
     void appendColumn(std::initializer_list<QRgb> bins);
+    void clear();
     const QImage& image() const { return m_image; }
     int columnsFilled() const { return m_filled; }
     static QColor background();

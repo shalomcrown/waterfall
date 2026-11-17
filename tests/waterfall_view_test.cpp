@@ -2,8 +2,10 @@
 #include "MainWindow.h"
 #include "SpectrogramWidget.h"
 #include "WaterfallView.h"
+#include "WavFile.h"
 
 #include <QApplication>
+#include <QTemporaryDir>
 #include <QImage>
 #include <QTextBrowser>
 #include <QPushButton>
@@ -127,6 +129,31 @@ TEST(MainWindow, StopStaysDisabledUntilStart) {
 
 // ================================================================================
 
+TEST(MainWindow, LoadSwitchesStartToPlayAndStopToLive) {
+    testApp();
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const std::int16_t samples[] = {0, 1000, -1000, 500};
+    QString error;
+    const QString path = dir.filePath(QStringLiteral("tone.wav"));
+    ASSERT_TRUE(WavFile::write(path, 8000, samples, error));
+
+    MainWindow window;
+    ASSERT_TRUE(window.loadPath(path, error)) << error.toStdString();
+    EXPECT_EQ(window.startButton()->text(), QStringLiteral("Play"));
+    EXPECT_EQ(window.startButton()->isEnabled(), true);
+    EXPECT_EQ(window.stopButton()->text(), QStringLiteral("Live"));
+    EXPECT_EQ(window.stopButton()->isEnabled(), true);
+
+    window.startButton()->click();
+    EXPECT_EQ(window.startButton()->text(), QStringLiteral("Pause"));
+    window.startButton()->click();
+    EXPECT_EQ(window.startButton()->text(), QStringLiteral("Play"));
+    EXPECT_EQ(window.stopButton()->text(), QStringLiteral("Live"));
+}
+
+// ================================================================================
+
 TEST(AboutDialog, ShowsTheReadme) {
     testApp();
     AboutDialog dialog;
@@ -177,4 +204,91 @@ TEST(SpectrogramWidget, PaintsFrequencyAndTimeAxes) {
     EXPECT_TRUE(hasInk(frequency->grab().toImage()));
     EXPECT_TRUE(hasInk(time->grab().toImage()));
     EXPECT_DOUBLE_EQ(plot.maximumHz(), 8000.0);
+}
+
+// ================================================================================
+
+TEST(SpectrogramWidget, TimeLabelsSpanTheFullAxisBeforeItFills) {
+    testApp();
+    SpectrogramWidget plot;
+    plot.resize(480, 320);
+    plot.show();
+    QCoreApplication::processEvents();
+    plot.waterfall()->resize(360, 240);
+    QCoreApplication::processEvents();
+    plot.setScale(1024.0 / 48000.0, 8000.0);
+    const QRgb sample = qRgb(253, 231, 37);
+    const QRgb bins[] = {sample, sample, sample, sample};
+    plot.appendColumn(bins);
+
+    QWidget* time = plot.findChild<QWidget*>(QStringLiteral("timeAxis"));
+    ASSERT_NE(time, nullptr);
+    ASSERT_GT(time->width(), 120);
+    const QImage image = time->grab().toImage();
+    int minX = image.width();
+    int maxX = -1;
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            if (qRed(image.pixel(x, y)) > 40) {
+                if (x < minX) {
+                    minX = x;
+                }
+                if (x > maxX) {
+                    maxX = x;
+                }
+            }
+        }
+    }
+    ASSERT_GE(maxX, 0);
+    EXPECT_GT(maxX - minX, image.width() / 2);
+}
+
+// ================================================================================
+
+TEST(SpectrogramWidget, AxesDrawTicksBetweenTheLabels) {
+    testApp();
+    SpectrogramWidget plot;
+    plot.resize(480, 320);
+    plot.show();
+    QCoreApplication::processEvents();
+    plot.waterfall()->resize(360, 240);
+    QCoreApplication::processEvents();
+    plot.setScale(1024.0 / 48000.0, 8000.0);
+    const QRgb sample = qRgb(253, 231, 37);
+    const QRgb bins[] = {sample, sample, sample, sample};
+    plot.appendColumn(bins);
+
+    QWidget* frequency = plot.findChild<QWidget*>(QStringLiteral("frequencyAxis"));
+    QWidget* time = plot.findChild<QWidget*>(QStringLiteral("timeAxis"));
+    ASSERT_NE(frequency, nullptr);
+    ASSERT_NE(time, nullptr);
+
+    const auto countRows = [](const QImage& image, int x0) {
+        int rows = 0;
+        for (int y = 0; y < image.height(); ++y) {
+            for (int x = x0; x < image.width(); ++x) {
+                if (qRed(image.pixel(x, y)) > 40) {
+                    ++rows;
+                    break;
+                }
+            }
+        }
+        return rows;
+    };
+    const auto countColumns = [](const QImage& image, int y1) {
+        int columns = 0;
+        for (int x = 0; x < image.width(); ++x) {
+            for (int y = 0; y < y1 && y < image.height(); ++y) {
+                if (qRed(image.pixel(x, y)) > 40) {
+                    ++columns;
+                    break;
+                }
+            }
+        }
+        return columns;
+    };
+    const QImage frequencyImage = frequency->grab().toImage();
+    const QImage timeImage = time->grab().toImage();
+    EXPECT_GT(countRows(frequencyImage, frequencyImage.width() - 4), 10);
+    EXPECT_GT(countColumns(timeImage, 5), 8);
 }

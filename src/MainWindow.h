@@ -22,14 +22,19 @@ public:
     QPushButton* configureButton() const { return m_configure; }
     QPushButton* aboutButton() const { return m_about; }
     WaterfallView* waterfall() const { return m_waterfall; }
+    bool loadPath(const QString& path, QString& error);
 
 protected:
     void showEvent(QShowEvent* event) override;
 
 private:
-    void setRunning(bool running);
+    void applyTransport();
     void startCapture();
     void stopCapture();
+    void togglePlayback();
+    void onPrimary();
+    void onSecondary();
+    void loadRecording();
     void saveRecording();
     void openSettings();
     void openAbout();
@@ -40,6 +45,9 @@ private:
     void applyKeepAwake();
 
     bool m_saving = false;
+    bool m_frequencyScaleReady = false;
+    bool m_logarithmic = false;
+    int m_logFloorHz = 5;
 
     SpectrogramWidget* m_spectrogram = nullptr;
     WaterfallView* m_waterfall = nullptr;

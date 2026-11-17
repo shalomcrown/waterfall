@@ -21,6 +21,16 @@ QColor WaterfallView::background() {
 
 // ================================================================================
 
+void WaterfallView::clear() {
+    if (m_image.isNull() == false) {
+        m_image.fill(background());
+    }
+    m_filled = 0;
+    update();
+}
+
+// ================================================================================
+
 void WaterfallView::appendColumn(std::initializer_list<QRgb> bins) {
     appendColumn(std::span<const QRgb>(bins.begin(), bins.size()));
 }

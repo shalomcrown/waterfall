@@ -1,6 +1,5 @@
 #include "FftEngine.h"
-
-#include <pocketfft_hdronly.h>
+#include "PocketFft.h"
 
 #include <algorithm>
 #include <cmath>
@@ -44,10 +43,7 @@ bool FftEngine::process(std::span<const float> input, std::span<float> levels) c
         windowed[static_cast<size_t>(i)] = input[static_cast<size_t>(i)] * m_window[static_cast<size_t>(i)];
     }
     std::vector<std::complex<float>> spectrum(static_cast<size_t>(bins));
-    const pocketfft::shape_t shape{static_cast<size_t>(m_size)};
-    const pocketfft::stride_t strideIn{static_cast<std::ptrdiff_t>(sizeof(float))};
-    const pocketfft::stride_t strideOut{static_cast<std::ptrdiff_t>(sizeof(std::complex<float>))};
-    pocketfft::r2c(shape, strideIn, strideOut, 0, pocketfft::FORWARD, windowed.data(), spectrum.data(), 1.f, 1);
+    realForwardFft(windowed.data(), spectrum.data(), m_size);
 
     const float n = static_cast<float>(m_size);
     for (int bin = 0; bin < bins; ++bin) {

@@ -6,6 +6,8 @@
 #include "WavFile.h"
 
 #include <QAudio>
+#include <QByteArray>
+#include <QAudioSink>
 #include <QAudioSource>
 #include <QIODevice>
 #include <QTimer>
@@ -39,6 +41,9 @@ AudioPipeline::AudioPipeline(QObject* parent) : QObject(parent) {
     m_releaseTimer = new QTimer(this);
     m_releaseTimer->setTimerType(Qt::PreciseTimer);
     connect(m_releaseTimer, &QTimer::timeout, this, &AudioPipeline::releaseDueColumns);
+    m_playbackTimer = new QTimer(this);
+    m_playbackTimer->setTimerType(Qt::PreciseTimer);
+    connect(m_playbackTimer, &QTimer::timeout, this, &AudioPipeline::onPlaybackTick);
 }
 
 // ================================================================================
@@ -57,7 +62,7 @@ bool AudioPipeline::start(const QAudioDevice& device, int sampleRate, int fftSiz
         error = tr("No input device is available.");
         return false;
     }
-    prepareOffline(fftSize, paletteName, overlapPercent, sampleRate, maxFrequencyHz);
+    prepareOffline(fftSize, paletteName, overlapPercent, sampleRate, maxFrequencyHz, true);
     if (m_fftSize < 2 || m_hop < 1) {
         error = tr("The FFT size is too small.");
         return false;
@@ -65,12 +70,10 @@ bool AudioPipeline::start(const QAudioDevice& device, int sampleRate, int fftSiz
 
     m_format = captureFormat(device, sampleRate);
     if (device.isFormatSupported(m_format) == false || m_format.bytesPerFrame() < 1) {
-        m_history.clear();
         error = tr("The input device rejected the audio format.");
         return false;
     }
     m_sampleRate = m_format.sampleRate() > 0 ? m_format.sampleRate() : sampleRate;
-    m_history.reset(m_sampleRate, m_recordingSeconds);
 
     m_source = std::make_unique<QAudioSource>(device, m_format);
     const int periodSamples = std::max(m_hop * 2, m_sampleRate / 50);
@@ -80,10 +83,10 @@ bool AudioPipeline::start(const QAudioDevice& device, int sampleRate, int fftSiz
     if (m_io == nullptr || m_source->error() != QAudio::NoError) {
         m_source.reset();
         m_io = nullptr;
-        m_history.clear();
         error = tr("The input device did not start.");
         return false;
     }
+    m_history.reset(m_sampleRate, m_recordingSeconds);
     connect(m_io, &QIODevice::readyRead, this, &AudioPipeline::onReadyRead);
     const int hopMs = columnIntervalMs();
     m_releaseTimer->setInterval(hopMs < 16 ? 16 : hopMs);
@@ -96,6 +99,7 @@ bool AudioPipeline::start(const QAudioDevice& device, int sampleRate, int fftSiz
 // ================================================================================
 
 void AudioPipeline::stop() {
+    endPlayback();
     if (m_releaseTimer != nullptr) {
         m_releaseTimer->stop();
     }
@@ -113,7 +117,6 @@ void AudioPipeline::stop() {
     }
     m_pending.clear();
     m_filled = 0;
-    m_history.clear();
     std::lock_guard<std::mutex> lock(m_queueMutex);
     m_readyColumns.clear();
 }
@@ -121,7 +124,7 @@ void AudioPipeline::stop() {
 // ================================================================================
 
 void AudioPipeline::prepareOffline(int fftSize, const QString& paletteName, int overlapPercent, int sampleRate,
-                                  int maxFrequencyHz) {
+                                  int maxFrequencyHz, bool keepRecording) {
     if (m_running.load(std::memory_order_acquire) == true) {
         return;
     }
@@ -141,7 +144,9 @@ void AudioPipeline::prepareOffline(int fftSize, const QString& paletteName, int 
         m_buffer.reset();
         m_block.clear();
         m_levels.clear();
-        m_history.clear();
+        if (keepRecording == false) {
+            m_history.clear();
+        }
         return;
     }
     m_fftSize = fftSize;
@@ -155,7 +160,9 @@ void AudioPipeline::prepareOffline(int fftSize, const QString& paletteName, int 
     m_buffer = std::make_unique<AudioRingBuffer>(capacity);
     m_block.assign(static_cast<size_t>(fftSize), 0.f);
     m_levels.assign(static_cast<size_t>(m_fft.binCount()), 0.f);
-    m_history.reset(m_sampleRate, m_recordingSeconds);
+    if (keepRecording == false) {
+        m_history.reset(m_sampleRate, m_recordingSeconds);
+    }
 }
 
 // ================================================================================
@@ -170,11 +177,18 @@ size_t AudioPipeline::writeSamples(std::span<const float> samples) {
 
 // ================================================================================
 
+void AudioPipeline::setFrequencyDisplay(bool logarithmic, int floorHz) {
+    m_logarithmic.store(logarithmic, std::memory_order_release);
+    m_logFloorHz.store(floorHz > 0 ? floorHz : 5, std::memory_order_release);
+    m_displayGeneration.fetch_add(1, std::memory_order_acq_rel);
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+    m_readyColumns.clear();
+}
+
+// ================================================================================
+
 void AudioPipeline::setRecordingSeconds(int seconds) {
     m_recordingSeconds = seconds > 0 ? seconds : 0;
-    if (m_sampleRate > 0 && isRunning() == false) {
-        m_history.reset(m_sampleRate, m_recordingSeconds);
-    }
 }
 
 // ================================================================================
@@ -252,6 +266,7 @@ bool AudioPipeline::fillWindow() {
 // ================================================================================
 
 bool AudioPipeline::nextColumn(QVector<QRgb>& column) {
+    const int generation = m_displayGeneration.load(std::memory_order_acquire);
     if (m_fftSize < 2 || fillWindow() == false) {
         return false;
     }
@@ -268,10 +283,41 @@ bool AudioPipeline::nextColumn(QVector<QRgb>& column) {
     }
     const int shown = lastBin + 1;
     column.resize(shown);
-    for (int i = 0; i < shown; ++i) {
-        // Row 0 is the top of the waterfall: the highest displayed frequency.
-        const int source = lastBin - i;
-        column[i] = Palette::color(m_palette, m_levels[static_cast<size_t>(source)]);
+    const double topHz =
+            m_sampleRate > 1 ? static_cast<double>(lastBin) * static_cast<double>(m_sampleRate) / static_cast<double>(m_fftSize)
+                             : 0.0;
+    const int floorHz = m_logFloorHz.load(std::memory_order_acquire);
+    const bool logarithmic = m_logarithmic.load(std::memory_order_acquire) == true && topHz > static_cast<double>(floorHz);
+    if (logarithmic == true) {
+        const auto levelAt = [&](double hz) {
+            const double bin = hz * static_cast<double>(m_fftSize) / static_cast<double>(m_sampleRate);
+            if (bin <= 0.0) {
+                return m_levels.front();
+            }
+            if (bin >= static_cast<double>(bins - 1)) {
+                return m_levels.back();
+            }
+            const int lower = static_cast<int>(std::floor(bin));
+            const float fraction = static_cast<float>(bin - static_cast<double>(lower));
+            return m_levels[static_cast<size_t>(lower)] * (1.f - fraction) +
+                   m_levels[static_cast<size_t>(lower + 1)] * fraction;
+        };
+        for (int i = 0; i < shown; ++i) {
+            const double fromBottom =
+                    shown == 1 ? 1.0 : 1.0 - static_cast<double>(i) / static_cast<double>(shown - 1);
+            const double hz = hzFromBottom(fromBottom, topHz, true, static_cast<double>(floorHz));
+            column[i] = Palette::color(m_palette, levelAt(hz));
+        }
+    } else {
+        for (int i = 0; i < shown; ++i) {
+            // Row 0 is the top of the waterfall: the highest displayed frequency.
+            const int source = lastBin - i;
+            column[i] = Palette::color(m_palette, m_levels[static_cast<size_t>(source)]);
+        }
+    }
+    if (generation != m_displayGeneration.load(std::memory_order_acquire)) {
+        column.clear();
+        return false;
     }
     return true;
 }
@@ -304,6 +350,169 @@ void AudioPipeline::releaseDueColumns() {
         }
         emit columnReady(column);
         --budget;
+    }
+}
+
+// ================================================================================
+
+bool AudioPipeline::loadClip(std::span<const std::int16_t> samples, int sampleRate, QString& error) {
+    error.clear();
+    if (samples.empty() == true || sampleRate < 1) {
+        error = tr("That file has no audio.");
+        return false;
+    }
+    stop();
+    m_clip.assign(samples.begin(), samples.end());
+    m_clipRate = sampleRate;
+    m_clipPos = 0;
+    return true;
+}
+
+// ================================================================================
+
+void AudioPipeline::clearClip() {
+    endPlayback();
+    m_clip.clear();
+    m_clipRate = 0;
+    m_clipPos = 0;
+}
+
+// ================================================================================
+
+void AudioPipeline::pauseClip() {
+    endPlayback();
+}
+
+// ================================================================================
+
+void AudioPipeline::endPlayback() {
+    m_playing = false;
+    if (m_playbackTimer != nullptr) {
+        m_playbackTimer->stop();
+    }
+    m_sinkIo = nullptr;
+    if (m_sink != nullptr) {
+        m_sink->stop();
+        m_sink.reset();
+    }
+}
+
+// ================================================================================
+
+void AudioPipeline::openPlaybackSink(const QAudioDevice& device) {
+    if (device.isNull() == true || m_clipRate < 1) {
+        return;
+    }
+    QAudioFormat format;
+    format.setSampleRate(m_clipRate);
+    format.setChannelCount(1);
+    format.setSampleFormat(QAudioFormat::Float);
+    if (device.isFormatSupported(format) == false) {
+        format.setSampleFormat(QAudioFormat::Int16);
+        if (device.isFormatSupported(format) == false) {
+            return;
+        }
+    }
+    m_playbackFormat = format;
+    m_sink = std::make_unique<QAudioSink>(device, format);
+    const int frameBytes = std::max(1, format.bytesPerFrame());
+    m_sink->setBufferSize(std::max(m_clipRate / 5, 1024) * frameBytes);
+    m_sinkIo = m_sink->start();
+    if (m_sinkIo == nullptr || m_sink->error() != QAudio::NoError) {
+        m_sinkIo = nullptr;
+        m_sink.reset();
+    }
+}
+
+// ================================================================================
+
+bool AudioPipeline::playClip(const QAudioDevice& device, int fftSize, int overlapPercent, int maxFrequencyHz,
+                             const QString& paletteName, QString& error) {
+    error.clear();
+    if (m_clip.empty() == true || m_clipRate < 1) {
+        error = tr("There is no file to play.");
+        return false;
+    }
+    if (m_playing == true) {
+        return true;
+    }
+    if (m_running.load(std::memory_order_acquire) == true) {
+        stop();
+    }
+    const bool restart = m_clipPos == 0 || m_clipPos >= m_clip.size();
+    if (restart == true) {
+        m_clipPos = 0;
+        prepareOffline(fftSize, paletteName, overlapPercent, m_clipRate, maxFrequencyHz, false);
+        if (m_fftSize < 2 || m_hop < 1) {
+            error = tr("The FFT size is too small.");
+            return false;
+        }
+    }
+    openPlaybackSink(device);
+    m_playing = true;
+    m_playbackClock.restart();
+    m_playbackOriginSamples = static_cast<qint64>(m_clipPos);
+    m_playbackTimer->start(20);
+    return true;
+}
+
+// ================================================================================
+
+void AudioPipeline::onPlaybackTick() {
+    if (m_playing == false || m_clipPos >= m_clip.size() || m_clipRate < 1) {
+        if (m_playing == true) {
+            endPlayback();
+            emit playbackFinished();
+        }
+        return;
+    }
+    const size_t remaining = m_clip.size() - m_clipPos;
+    int count = 0;
+    if (m_sinkIo != nullptr && m_playbackFormat.bytesPerFrame() > 0) {
+        const int frameBytes = m_playbackFormat.bytesPerFrame();
+        const int freeFrames = static_cast<int>(m_sink->bytesFree() / frameBytes);
+        count = std::min(freeFrames, std::max(1, m_clipRate / 25));
+    } else {
+        const qint64 due = m_playbackClock.elapsed() * static_cast<qint64>(m_clipRate) / 1000;
+        const qint64 target = m_playbackOriginSamples + due;
+        count = static_cast<int>(std::max(qint64{0}, target - static_cast<qint64>(m_clipPos)));
+        count = std::min(count, std::max(1, m_clipRate / 10));
+    }
+    count = std::min(count, static_cast<int>(remaining));
+    if (count <= 0) {
+        return;
+    }
+    std::vector<float> floats(static_cast<size_t>(count));
+    QByteArray pcm;
+    const int frameBytes = m_sinkIo == nullptr ? 0 : m_playbackFormat.bytesPerFrame();
+    if (frameBytes > 0) {
+        pcm.resize(count * frameBytes);
+    }
+    for (int index = 0; index < count; ++index) {
+        const std::int16_t sample = m_clip[m_clipPos + static_cast<size_t>(index)];
+        const float value = static_cast<float>(sample) / 32768.f;
+        floats[static_cast<size_t>(index)] = value;
+        if (frameBytes == static_cast<int>(sizeof(float))) {
+            std::memcpy(pcm.data() + static_cast<qint64>(index) * frameBytes, &value, sizeof(float));
+        } else if (frameBytes == static_cast<int>(sizeof(qint16))) {
+            std::memcpy(pcm.data() + static_cast<qint64>(index) * frameBytes, &sample, sizeof(sample));
+        }
+    }
+    int played = count;
+    if (m_sinkIo != nullptr && pcm.isEmpty() == false) {
+        const qint64 written = m_sinkIo->write(pcm);
+        if (written < frameBytes) {
+            return;
+        }
+        played = static_cast<int>(written / frameBytes);
+    }
+    writeSamples(std::span<const float>(floats.data(), static_cast<size_t>(played)));
+    while (processPendingBlock() == true) {
+    }
+    m_clipPos += static_cast<size_t>(played);
+    if (m_clipPos >= m_clip.size()) {
+        endPlayback();
+        emit playbackFinished();
     }
 }
 

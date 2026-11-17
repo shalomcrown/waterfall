@@ -16,7 +16,7 @@ struct RecordingFormat {
     QString mimeType;
 };
 
-// Formats this process can actually write. WAV is always first.
+// Formats this process can actually write. WAV is always first. MP3 is always next.
 class RecordingSave {
 public:
     static QList<RecordingFormat> formats();

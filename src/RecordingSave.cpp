@@ -1,6 +1,7 @@
 #include "RecordingSave.h"
 
 #include "AppSettings.h"
+#include "Mp3File.h"
 #include "WavFile.h"
 
 #include <QtGlobal>
@@ -52,6 +53,8 @@ RecordingFormat wavFormat() {
 QList<RecordingFormat> discoverFormats() {
     QList<RecordingFormat> found;
     found.append(wavFormat());
+    found.append(makeFormat(QStringLiteral("mp3"), QObject::tr("MP3 (LAME)"), QStringLiteral("mp3"),
+                            QStringLiteral("audio/mpeg")));
 #if defined(Q_OS_ANDROID)
     if (androidEncoderAvailable(QStringLiteral("audio/mp4a-latm")) == true) {
         found.append(makeFormat(QStringLiteral("m4a"), QObject::tr("M4A (AAC)"), QStringLiteral("m4a"),
@@ -87,6 +90,9 @@ bool writeFilesystem(const QString& path, const RecordingFormat& format, int sam
     }
     if (format.id == QStringLiteral("wav")) {
         return WavFile::write(path, sampleRate, samples, error);
+    }
+    if (format.id == QStringLiteral("mp3")) {
+        return Mp3File::write(path, sampleRate, samples, error);
     }
 #if defined(Q_OS_ANDROID)
     return androidEncodeFile(path, format.id, sampleRate, samples, error);

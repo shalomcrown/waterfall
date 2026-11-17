@@ -121,6 +121,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     m_fft = makeCombo(this, "fftSize");
     m_overlap = makeCombo(this, "overlap");
     m_maxFrequency = makeCombo(this, "maxFrequency");
+    m_frequencyScale = makeCombo(this, "frequencyScale");
+    m_logFloor = makeCombo(this, "logFloor");
     m_recording = makeCombo(this, "recordingSeconds");
     m_format = makeCombo(this, "recordingFormat");
     m_keepScreen = new QCheckBox(tr("Keep screen on"), this);
@@ -134,6 +136,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     form->addRow(tr("FFT size"), m_fft);
     form->addRow(tr("Overlap"), m_overlap);
     form->addRow(tr("Frequency range"), m_maxFrequency);
+    form->addRow(tr("Frequency scale"), m_frequencyScale);
+    form->addRow(tr("Log floor"), m_logFloor);
     form->addRow(tr("Save window"), m_recording);
     form->addRow(tr("Save format"), m_format);
     form->addRow(QString(), m_keepScreen);
@@ -171,6 +175,22 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
             m_maxFrequency->addItem(label, hz);
         }
         selectSaved(m_maxFrequency, AppSettings::maxFrequencyHz(), 8000);
+    }
+    {
+        QSignalBlocker blocker(m_frequencyScale);
+        m_frequencyScale->addItem(tr("Linear"), QStringLiteral("linear"));
+        m_frequencyScale->addItem(tr("Logarithmic"), QStringLiteral("log"));
+        selectSaved(m_frequencyScale,
+                    AppSettings::logarithmicFrequency() ? QStringLiteral("log") : QStringLiteral("linear"),
+                    QStringLiteral("linear"));
+    }
+    {
+        QSignalBlocker blocker(m_logFloor);
+        for (int hz : AppSettings::logFloorChoices()) {
+            m_logFloor->addItem(tr("%1 Hz").arg(hz), hz);
+        }
+        selectSaved(m_logFloor, AppSettings::logFloorHz(), 5);
+        m_logFloor->setEnabled(m_frequencyScale->currentData().toString() == QStringLiteral("log"));
     }
     {
         QSignalBlocker blocker(m_recording);
@@ -218,6 +238,14 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     });
     connect(m_maxFrequency, &QComboBox::currentIndexChanged, this, [this] {
         AppSettings::setMaxFrequencyHz(m_maxFrequency->currentData().toInt());
+    });
+    connect(m_frequencyScale, &QComboBox::currentIndexChanged, this, [this] {
+        const bool logarithmic = m_frequencyScale->currentData().toString() == QStringLiteral("log");
+        AppSettings::setLogarithmicFrequency(logarithmic);
+        m_logFloor->setEnabled(logarithmic);
+    });
+    connect(m_logFloor, &QComboBox::currentIndexChanged, this, [this] {
+        AppSettings::setLogFloorHz(m_logFloor->currentData().toInt());
     });
     connect(m_recording, &QComboBox::currentIndexChanged, this, [this] {
         AppSettings::setRecordingSeconds(m_recording->currentData().toInt());
