@@ -12,7 +12,7 @@ require_line() {
     fi
 }
 
-for script in install-prereqs.sh build-linux.sh build-windows.sh build-android.sh install-apk.sh scripts/run-tests.sh; do
+for script in install-prereqs.sh build-linux.sh build-windows.sh build-android.sh install-apk.sh upload-firebase.sh scripts/run-tests.sh; do
     head -n 2 "$ROOT/$script" | grep -q 'set -euo pipefail' || {
         echo "$script must enable set -euo pipefail" >&2
         exit 1
@@ -44,6 +44,23 @@ require_line "$ROOT/install-apk.sh" "adb"
 require_line "$ROOT/install-apk.sh" "install -r"
 require_line "$ROOT/install-apk.sh" "cannot open the USB device"
 require_line "$ROOT/install-prereqs.sh" "51-android.rules"
+require_line "$ROOT/install-prereqs.sh" "https://firebase.tools"
+require_line "$ROOT/install-prereqs.sh" "ensure_firebase"
+require_line "$ROOT/upload-firebase.sh" "appdistribution:distribute"
+require_line "$ROOT/upload-firebase.sh" "1:199263152632:android:4db0f5d1770b2da1254e0d"
+require_line "$ROOT/upload-firebase.sh" "FIREBASE_APP_ID"
+require_line "$ROOT/upload-firebase.sh" "unsigned"
+require_line "$ROOT/upload-firebase.sh" "No tester group"
+require_line "$ROOT/upload-firebase.sh" "appdistribution:testers:list"
+require_line "$ROOT/upload-firebase.sh" "GROUP_ALIASES"
+if grep -E -q '(^|[[:space:]])GROUPS=' "$ROOT/upload-firebase.sh"; then
+    echo "upload-firebase.sh must not assign GROUPS; bash uses it for numeric group ids" >&2
+    exit 1
+fi
+if grep -E -q '^(export )?FIREBASE_TOKEN=' "$ROOT/upload-firebase.sh" "$ROOT/scripts/prereqs.env" "$ROOT/install-prereqs.sh"; then
+    echo "Firebase token must come from the environment, not the repo" >&2
+    exit 1
+fi
 require_line "$ROOT/build-android.sh" 'export JAVA_HOME="$ANDROID_JAVA_HOME"'
 require_line "$ROOT/build-android.sh" "apksigner"
 require_line "$ROOT/build-android.sh" "env:WATERFALL_KEYSTORE_PASSWORD"

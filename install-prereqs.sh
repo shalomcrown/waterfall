@@ -44,6 +44,7 @@ ANDROID_PACKAGES=(
     python3-pip
     openjdk-17-jdk
     imagemagick
+    curl
 )
 
 if [ -t 1 ]; then
@@ -246,6 +247,26 @@ ensure_android_sdk() {
     ok "Android SDK"
 }
 
+ensure_firebase() {
+    if command -v firebase >/dev/null 2>&1; then
+        ok "firebase $(firebase --version 2>/dev/null | head -n 1)"
+        return 0
+    fi
+    step "Install Firebase CLI"
+    if [ "$DRY_RUN" -eq 1 ]; then
+        info "Would install the Firebase CLI from https://firebase.tools"
+        return 0
+    fi
+    # The installer is non-interactive when stdin is a pipe. analytics=false
+    # skips the installer's metrics ping. It places firebase on /usr/local/bin.
+    curl -fsSL https://firebase.tools | analytics=false bash
+    if ! command -v firebase >/dev/null 2>&1; then
+        fail "Firebase CLI did not install. Expected the firebase command on PATH."
+        return 0
+    fi
+    ok "firebase $(firebase --version 2>/dev/null | head -n 1)"
+}
+
 echo
 info "Mode: $MODE"
 info "Qt for Windows/Android: $QT_VERSION"
@@ -277,6 +298,7 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "android" ]; then
     ensure_qt_arch linux android "$QT_ANDROID_ARCH" "$QT_ANDROID_DIRNAME"
     ensure_android_udev
     ensure_android_sdk
+    ensure_firebase
     echo
 fi
 

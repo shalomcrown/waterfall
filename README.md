@@ -113,3 +113,16 @@ To install onto a phone over USB, turn on USB debugging, accept the computer pro
 ```
 
 With no argument it installs the newest signed APK in `dist/`. You can also pass a path.
+
+To publish that APK to Firebase App Distribution:
+
+```bash
+firebase login          # once per machine
+./upload-firebase.sh    # newest signed APK in dist/
+```
+
+The default Firebase Android app is `1:199263152632:android:4db0f5d1770b2da1254e0d`. `--app` or `FIREBASE_APP_ID` selects a different one. The APK's package name, `com.kirayim.waterfall`, has to be the package registered for that Firebase app.
+
+With no `--groups` or `--testers`, the build is shared with the testers already on the project. `--groups` takes the group alias, not the display name. A missing alias makes Firebase return 404 after the upload, so the script checks the alias first. `--notes` or `--notes-file` sets the release notes. A CI login can use `FIREBASE_TOKEN` from `firebase login:ci`, or `GOOGLE_APPLICATION_CREDENTIALS` for a service account. The token is not stored in the repo.
+
+`./install-prereqs.sh --mode android` installs the Firebase CLI.
