@@ -63,7 +63,12 @@ if [ ! -f "$APK" ]; then
     echo "APK build finished but $APK was not produced" >&2
     exit 1
 fi
-VERSION="$(sed -n 's/^CMAKE_PROJECT_VERSION:STATIC=//p' "$ROOT/build/android-release/CMakeCache.txt")"
+STAMP_CPP="$ROOT/build/android-release/generated/build_timestamp.cpp"
+VERSION="$(sed -n 's/^const char \*VERSION="\(.*\)";/\1/p' "$STAMP_CPP")"
+if [ -z "$VERSION" ]; then
+    echo "Build stamp missing from $STAMP_CPP" >&2
+    exit 1
+fi
 mkdir -p "$ROOT/dist"
 OUT="$ROOT/dist/waterfall-${VERSION}-arm64-v8a.apk"
 KEY_PASS_ARGS=()

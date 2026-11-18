@@ -14,6 +14,8 @@
 #include <QTextBrowser>
 #include <QVBoxLayout>
 
+extern const char* VERSION;
+
 // ================================================================================
 
 AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent) {
@@ -59,6 +61,12 @@ AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent) {
     m_close->setObjectName(QStringLiteral("closeAbout"));
     m_close->setMinimumHeight(44);
     connect(m_close, &QPushButton::clicked, this, &QDialog::reject);
+
+    auto* version = new QLabel(QString::fromUtf8(VERSION), this);
+    version->setObjectName(QStringLiteral("aboutVersion"));
+    version->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    version->setAccessibleName(version->text());
+    layout->addWidget(version);
 
     m_text = new QTextBrowser(this);
     m_text->setObjectName(QStringLiteral("aboutText"));

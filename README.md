@@ -14,7 +14,7 @@ MP3 is encoded with [LAME](https://lame.sourceforge.io/) 3.100, which is license
 
 ## Using it
 
-Press **Start** to capture the selected input and draw the waterfall. **Stop** ends capture. **Configure** opens Settings. **About** shows this document. Changes in Settings are stored immediately.
+Press **Start** to capture the selected input and draw the waterfall. **Stop** ends capture. **Configure** opens Settings. **About** shows this document, with the build version above it. Changes in Settings are stored immediately.
 
 | Setting | What it does |
 | --- | --- |
@@ -61,6 +61,8 @@ Linux uses the distribution Qt (`qt6-base-dev` and `qt6-multimedia-dev`). Window
 ./build-windows.sh     # dist/waterfall-<version>-win64.exe
 ./build-android.sh     # dist/waterfall-<version>-arm64-v8a.apk
 ```
+
+Each build stamps `0.1.0.YYYYMMDD.HHMM.<git>` into the binary and the package name. `waterfall --version` prints the same string.
 
 The Linux package installs a desktop entry and icon, so the app shows up in the Ubuntu launcher and sidebar. The Android launcher icon is the same artwork. `install-prereqs.sh --mode android` installs ImageMagick, which the Android build uses to turn that SVG into the launcher sizes.
 

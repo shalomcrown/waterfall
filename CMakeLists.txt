@@ -17,6 +17,21 @@ if(ANDROID)
     endif()
 endif()
 
+set(GENERATED_HEADER_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(TIMESTAMP_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/timestamp.cmake")
+set(HEADER_FILE "${GENERATED_HEADER_DIR}/build_timestamp.cpp")
+file(MAKE_DIRECTORY "${GENERATED_HEADER_DIR}")
+add_custom_target(UpdateTimestamp
+        COMMAND bash "${CMAKE_SOURCE_DIR}/version.sh" "${HEADER_FILE}" "${TIMESTAMP_SCRIPT}"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        BYPRODUCTS "${HEADER_FILE}" "${TIMESTAMP_SCRIPT}"
+        COMMENT "Updating build timestamp / package version"
+)
+execute_process(
+        COMMAND bash "${CMAKE_SOURCE_DIR}/version.sh" "${HEADER_FILE}" "${TIMESTAMP_SCRIPT}"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
 find_package(Qt6 COMPONENTS
         Core
         Gui
@@ -140,6 +155,7 @@ qt_add_executable(waterfall
         src/SpectrogramWidget.cpp
         src/AboutDialog.cpp
         resources/about.qrc
+        ${HEADER_FILE}
 )
 set_target_properties(waterfall PROPERTIES
         AUTOMOC ON
@@ -150,6 +166,7 @@ if(WIN32)
     set_target_properties(waterfall PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 target_include_directories(waterfall PRIVATE src)
+add_dependencies(waterfall UpdateTimestamp)
 if(ANDROID)
     target_sources(waterfall PRIVATE src/AndroidEncoder.cpp src/AndroidDocument.cpp)
     # ACTION_CREATE_DOCUMENT needs QtAndroidPrivate::startActivity. Those headers live in
@@ -191,6 +208,13 @@ if(ANDROID)
             QT_ANDROID_PACKAGE_SOURCE_DIR "${WATERFALL_ANDROID_PACKAGE_DIR}"
     )
     cmake_language(DEFER CALL add_dependencies waterfall_make_apk android_icons)
+    add_custom_target(stamp_android_version
+            COMMAND bash "${CMAKE_SOURCE_DIR}/version.sh" --android-manifest
+                    "${HEADER_FILE}" "${WATERFALL_ANDROID_PACKAGE_DIR}/AndroidManifest.xml"
+            COMMENT "Stamping Android versionName"
+    )
+    add_dependencies(stamp_android_version UpdateTimestamp android_icons)
+    cmake_language(DEFER CALL add_dependencies waterfall_make_apk stamp_android_version)
 endif()
 target_link_libraries(waterfall PRIVATE
         Qt::Core
@@ -242,7 +266,9 @@ if(NOT CMAKE_CROSSCOMPILING)
             src/AboutDialog.cpp
             resources/about.qrc
             tests/audio_test.cpp
+            ${HEADER_FILE}
     )
+    add_dependencies(waterfall_tests UpdateTimestamp)
     target_include_directories(waterfall_tests PRIVATE src)
     set_target_properties(waterfall_tests PROPERTIES AUTOMOC ON AUTORCC ON)
     target_link_libraries(waterfall_tests PRIVATE
@@ -263,6 +289,10 @@ if(NOT CMAKE_CROSSCOMPILING)
     add_test(
             NAME build_scripts
             COMMAND bash "${CMAKE_SOURCE_DIR}/tests/build_scripts_test.sh"
+    )
+    add_test(
+            NAME version_script
+            COMMAND bash "${CMAKE_SOURCE_DIR}/tests/version_script_test.sh"
     )
 endif()
 
@@ -351,6 +381,7 @@ set(CPACK_PACKAGE_VENDOR "waterfall")
 set(CPACK_PACKAGE_CONTACT "waterfall@localhost")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Waterfall")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "${APP_DISPLAY_NAME}")
+set(CPACK_PROJECT_CONFIG_FILE "${TIMESTAMP_SCRIPT}")
 
 if(WIN32)
     set(CPACK_GENERATOR "NSIS")

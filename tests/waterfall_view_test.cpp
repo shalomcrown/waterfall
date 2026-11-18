@@ -7,8 +7,11 @@
 #include <QApplication>
 #include <QTemporaryDir>
 #include <QImage>
+#include <QLabel>
+#include <QRegularExpression>
 #include <QTextBrowser>
 #include <QPushButton>
+#include <QVBoxLayout>
 #include <QRgb>
 
 #include <gtest/gtest.h>
@@ -157,6 +160,15 @@ TEST(MainWindow, LoadSwitchesStartToPlayAndStopToLive) {
 TEST(AboutDialog, ShowsTheReadme) {
     testApp();
     AboutDialog dialog;
+    QLabel* version = dialog.findChild<QLabel*>(QStringLiteral("aboutVersion"));
+    ASSERT_NE(version, nullptr);
+    EXPECT_TRUE(QRegularExpression(QStringLiteral(R"(^0\.1\.0\.\d{8}\.\d{4}\.([0-9a-f]+|unknown)$)"))
+                        .match(version->text())
+                        .hasMatch())
+            << version->text().toStdString();
+    auto* layout = qobject_cast<QVBoxLayout*>(dialog.layout());
+    ASSERT_NE(layout, nullptr);
+    EXPECT_LT(layout->indexOf(version), layout->indexOf(dialog.text()));
     QTextBrowser* browser = dialog.text();
     ASSERT_NE(browser, nullptr);
     const QString plain = browser->toPlainText();
