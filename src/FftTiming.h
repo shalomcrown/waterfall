@@ -3,12 +3,24 @@
 #include <algorithm>
 #include <cmath>
 
-// Shared by the pipeline and the axes. 87 means 87.5% overlap.
+// The overlap codes above 75 stand for exact fractions: 87 is 87.5% (a hop of N/8),
+// 94 is 93.75% (N/16) and 97 is 96.875% (N/32).
+constexpr int kMaxOverlapPercent = 97;
+
+// ================================================================================
+
+// Shared by the pipeline and the axes.
 inline int waterfallHop(int fftSize, int overlapPercent) {
     if (fftSize < 2) {
         return 0;
     }
-    const int percent = std::clamp(overlapPercent, 0, 87);
+    const int percent = std::clamp(overlapPercent, 0, kMaxOverlapPercent);
+    if (percent >= 97) {
+        return std::max(1, fftSize / 32);
+    }
+    if (percent >= 94) {
+        return std::max(1, fftSize / 16);
+    }
     if (percent >= 87) {
         return std::max(1, fftSize / 8);
     }

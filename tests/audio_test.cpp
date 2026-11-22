@@ -8,6 +8,7 @@
 #include "PcmHistory.h"
 #include "Mp3File.h"
 #include "RecordingSave.h"
+#include "SpectrumColumn.h"
 #include "WavFile.h"
 
 #include <QCoreApplication>
@@ -284,6 +285,150 @@ TEST(PcmHistory, KeepsOnlyTheMostRecentSamples) {
     EXPECT_EQ(kept.front(), static_cast<std::int16_t>(std::lround(-0.5f * 32767.f)));
     EXPECT_EQ(kept.back(), static_cast<std::int16_t>(-32767));
     EXPECT_EQ(history.sampleRate(), 8);
+}
+
+// ================================================================================
+
+TEST(PcmHistory, KeepsAbsolutePositionsAfterOldSamplesDrop) {
+    PcmHistory history;
+    history.reset(8, 1);
+    std::vector<float> input(12);
+    for (size_t i = 0; i < input.size(); ++i) {
+        input[i] = static_cast<float>(i) / 32767.f;
+    }
+    history.append(input);
+    EXPECT_EQ(history.endPosition(), 12);
+    EXPECT_EQ(history.firstPosition(), 4);
+
+    std::vector<float> out(4);
+    ASSERT_TRUE(history.readRange(6, out));
+    for (size_t i = 0; i < out.size(); ++i) {
+        EXPECT_FLOAT_EQ(out[i], input[6 + i]);
+    }
+    EXPECT_FALSE(history.readRange(3, out));
+    EXPECT_FALSE(history.readRange(10, out));
+    history.reset(8, 1);
+    EXPECT_EQ(history.endPosition(), 0);
+    EXPECT_EQ(history.firstPosition(), 0);
+}
+
+// ================================================================================
+
+TEST(AudioPipeline, RedrawnColumnsMatchTheLiveOnes) {
+    audioApp();
+    constexpr int size = 256;
+    constexpr int hop = 128;
+    AudioPipeline pipeline;
+    pipeline.setRecordingSeconds(10);
+    pipeline.prepareOffline(size, QStringLiteral("Viridis"), 50, 16000);
+    QVector<QVector<QRgb>> live;
+    QObject::connect(&pipeline, &AudioPipeline::columnReady, &pipeline,
+                     [&](const QVector<QRgb>& ready) { live.push_back(ready); });
+    std::vector<float> input(static_cast<size_t>(size * 4));
+    for (size_t i = 0; i < input.size(); ++i) {
+        // Whole multiples of 1/32767, so the 16-bit history restores them exactly.
+        input[i] = std::round(std::sin(0.31 * static_cast<double>(i)) * 9000.0) / 32767.f;
+    }
+    EXPECT_EQ(pipeline.writeSamples(input), input.size());
+    while (pipeline.processPendingBlock() == true) {
+    }
+    ASSERT_GE(live.size(), 4);
+    EXPECT_EQ(pipeline.firstPosition(), 0);
+    EXPECT_EQ(pipeline.endPosition(), static_cast<long long>(input.size()));
+    for (int k = 0; k < 4; ++k) {
+        QVector<QRgb> redrawn;
+        ASSERT_TRUE(pipeline.renderColumn(size + static_cast<long long>(k) * hop, size, 0, redrawn)) << k;
+        EXPECT_EQ(redrawn, live[k]) << k;
+    }
+    QVector<QRgb> beyond;
+    EXPECT_FALSE(pipeline.renderColumn(static_cast<long long>(input.size()) + 1, size, 0, beyond));
+    EXPECT_FALSE(pipeline.renderColumn(size - 1, size, 0, beyond));
+}
+
+// ================================================================================
+
+TEST(AudioPipeline, RedrawsWithALongerFftThanTheCapture) {
+    audioApp();
+    constexpr int size = 256;
+    AudioPipeline pipeline;
+    pipeline.setRecordingSeconds(10);
+    pipeline.prepareOffline(size, QStringLiteral("Viridis"), 50, 16000);
+    std::vector<float> input(static_cast<size_t>(size * 8));
+    for (size_t i = 0; i < input.size(); ++i) {
+        input[i] = std::round(std::sin(0.31 * static_cast<double>(i)) * 9000.0) / 32767.f;
+    }
+    EXPECT_EQ(pipeline.writeSamples(input), input.size());
+    while (pipeline.processPendingBlock() == true) {
+    }
+    QVector<QRgb> shortColumn;
+    QVector<QRgb> longColumn;
+    ASSERT_TRUE(pipeline.renderColumn(size * 4, size, 0, shortColumn));
+    ASSERT_TRUE(pipeline.renderColumn(size * 4, size * 4, 0, longColumn));
+    // Four times the window gives four times the bins over the same frequencies.
+    EXPECT_EQ(longColumn.size(), (shortColumn.size() - 1) * 4 + 1);
+    EXPECT_NE(longColumn, shortColumn);
+    // A window that would start before the first sample cannot be drawn.
+    EXPECT_FALSE(pipeline.renderColumn(size * 2, size * 4, 0, longColumn));
+}
+
+// ================================================================================
+
+TEST(SpectrumColumn, PoolingKeepsTheStrongestBinOfEachRow) {
+    constexpr int bins = 65;
+    std::vector<float> levels(bins, 0.f);
+    levels[37] = 1.f;
+    SpectrumColumnSettings settings;
+    settings.fftSize = 128;
+    settings.sampleRate = 128;
+    settings.palette = QStringLiteral("Gray");
+
+    QVector<QRgb> full;
+    buildSpectrumColumn(levels, settings, full);
+    ASSERT_EQ(full.size(), bins);
+
+    settings.maxRows = 8;
+    QVector<QRgb> pooled;
+    buildSpectrumColumn(levels, settings, pooled);
+    ASSERT_EQ(pooled.size(), 8);
+    int bright = 0;
+    for (QRgb color : pooled) {
+        bright += qRed(color) == 255 ? 1 : 0;
+    }
+    EXPECT_EQ(bright, 1);
+    // Bin 37 of 65 is 57% of the way up, which is row 3 from the bottom of 8, so row 4 from the top.
+    EXPECT_EQ(qRed(pooled[8 - 1 - 4]), 255);
+
+    settings.logarithmic = true;
+    settings.maxFrequencyHz = 0;
+    settings.logFloorHz = 5;
+    buildSpectrumColumn(levels, settings, pooled);
+    ASSERT_EQ(pooled.size(), 8);
+    bright = 0;
+    for (QRgb color : pooled) {
+        bright += qRed(color) == 255 ? 1 : 0;
+    }
+    EXPECT_GE(bright, 1);
+
+    // A limit that is not below the bin count changes nothing.
+    settings.logarithmic = false;
+    settings.maxRows = bins;
+    buildSpectrumColumn(levels, settings, pooled);
+    EXPECT_EQ(pooled, full);
+}
+
+// ================================================================================
+
+TEST(FftTiming, OverlapCodesAboveSeventyFiveAreExactFractions) {
+    EXPECT_EQ(waterfallHop(2048, 0), 2048);
+    EXPECT_EQ(waterfallHop(2048, 50), 1024);
+    EXPECT_EQ(waterfallHop(2048, 87), 256);
+    EXPECT_EQ(waterfallHop(2048, 94), 128);
+    EXPECT_EQ(waterfallHop(2048, 97), 64);
+    EXPECT_EQ(waterfallHop(2048, 200), 64);
+    EXPECT_EQ(waterfallHop(16, 97), 1);
+    for (int percent : AppSettings::overlapPercents()) {
+        EXPECT_GE(waterfallHop(32768, percent), 1);
+    }
 }
 
 // ================================================================================

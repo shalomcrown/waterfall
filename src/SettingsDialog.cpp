@@ -163,7 +163,14 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     {
         QSignalBlocker blocker(m_overlap);
         for (int percent : AppSettings::overlapPercents()) {
-            const QString label = percent == 87 ? tr("87.5%") : tr("%1%").arg(percent);
+            QString label = tr("%1%").arg(percent);
+            if (percent == 87) {
+                label = tr("87.5%");
+            } else if (percent == 94) {
+                label = tr("93.75%");
+            } else if (percent == 97) {
+                label = tr("96.875%");
+            }
             m_overlap->addItem(label, percent);
         }
         selectSaved(m_overlap, AppSettings::overlapPercent(), 50);

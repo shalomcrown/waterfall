@@ -2,7 +2,8 @@
 set -euo pipefail
 # Upload a signed Android APK to Firebase App Distribution.
 # Usage: ./upload-firebase.sh [options] [path-to.apk]
-# With no APK path, uploads the newest signed APK in dist/.
+# With no APK path, uploads the newest signed full APK in dist/.
+# A locked Play build is refused. Run ./build-android.sh --full first.
 #
 # Options:
 #   --groups <aliases>     Comma-separated tester groups to notify
@@ -65,9 +66,9 @@ if [ -z "$APK" ]; then
         echo "No signed APK in dist/. Run ./build-android.sh first, or pass a path." >&2
         exit 1
     fi
-    mapfile -t apks < <(find "$ROOT/dist" -maxdepth 1 -type f -name 'waterfall-*-arm64-v8a.apk' ! -name '*-unsigned.apk' -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2-)
+    mapfile -t apks < <(find "$ROOT/dist" -maxdepth 1 -type f -name 'waterfall-*-full-arm64-v8a.apk' ! -name '*-unsigned.apk' -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2-)
     if [ "${#apks[@]}" -eq 0 ]; then
-        echo "No signed APK in dist/. Run ./build-android.sh first, or pass a path." >&2
+        echo "No full APK in dist/. Run ./build-android.sh --full, or pass a path." >&2
         exit 1
     fi
     APK="${apks[0]}"
@@ -79,6 +80,13 @@ fi
 case "$APK" in
     *-unsigned.apk)
         echo "Refusing to upload an unsigned APK: $APK" >&2
+        exit 1
+        ;;
+    *-full-arm64-v8a.apk)
+        ;;
+    *)
+        echo "Refusing to upload a locked APK: $APK" >&2
+        echo "Firebase builds are the full version. Run ./build-android.sh --full" >&2
         exit 1
         ;;
 esac
@@ -118,6 +126,7 @@ raise SystemExit(1)
 else
     PROJECT_ID="$FIREBASE_PROJECT_ID"
 fi
+echo "Firebase project: ${PROJECT_ID}"
 
 if [ -n "$GROUP_ALIASES" ]; then
     "$FIREBASE" appdistribution:groups:list --project "$PROJECT_ID" --json \
@@ -144,18 +153,27 @@ if missing:
 fi
 
 if [ -z "$GROUP_ALIASES" ] && [ -z "$TESTERS" ]; then
-    TESTERS="$("$FIREBASE" appdistribution:testers:list --project "$PROJECT_ID" --json | python3 -c '
+    testers_json="$(mktemp)"
+    set +e
+    "$FIREBASE" appdistribution:testers:list --project "$PROJECT_ID" --json >"$testers_json"
+    testers_status=$?
+    set -e
+    TESTERS="$(python3 -c '
 import json, sys
-testers = json.load(sys.stdin)["result"].get("testers") or []
+payload = json.load(sys.stdin)
+result = payload.get("result") or {}
+testers = result.get("testers") or []
 emails = []
 for tester in testers:
     email = tester.get("name", "").rsplit("/", 1)[-1]
     if "@" in email:
         emails.append(email)
 print(",".join(emails))
-')"
-    if [ -z "$TESTERS" ]; then
+' <"$testers_json")" || TESTERS=""
+    rm -f "$testers_json"
+    if [ "$testers_status" -ne 0 ] || [ -z "$TESTERS" ]; then
         echo "No testers in this project. The build will be uploaded and not shared."
+        TESTERS=""
     fi
 fi
 

@@ -15,6 +15,7 @@
 
 #include <QApplication>
 #include <QByteArray>
+#include <QDateTime>
 #include <QGuiApplication>
 #include <QShowEvent>
 #include <QAudioDevice>
@@ -134,11 +135,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     resize(800, 480);
 
     m_pipeline = new AudioPipeline(this);
-    connect(m_pipeline, &AudioPipeline::columnReady, this, [this](const QVector<QRgb>& column) {
-        if (m_spectrogram == nullptr || column.isEmpty() == true) {
-            return;
+    // The picture is drawn from the sound buffer. A new column only says there is
+    // more to show.
+    connect(m_pipeline, &AudioPipeline::columnReady, this, [this](const QVector<QRgb>&) {
+        if (m_spectrogram != nullptr) {
+            m_spectrogram->liveAdvanced();
         }
-        m_spectrogram->appendColumn(std::span<const QRgb>(column.constData(), static_cast<size_t>(column.size())));
     });
     refreshScale();
     applyTransport();
@@ -263,6 +265,7 @@ void MainWindow::startCapture() {
     m_logarithmic = AppSettings::logarithmicFrequency();
     m_logFloorHz = AppSettings::logFloorHz();
     m_frequencyScaleReady = true;
+    beginView(false);
     applyTransport();
 }
 
@@ -296,9 +299,6 @@ void MainWindow::togglePlayback() {
         showAudioError(error);
         return;
     }
-    if (fromStart == true && m_waterfall != nullptr) {
-        m_waterfall->clear();
-    }
     const int rate = m_pipeline->clipSampleRate();
     if (rate > 1 && m_pipeline->hopSamples() > 0 && m_spectrogram != nullptr) {
         m_spectrogram->setScale(static_cast<double>(m_pipeline->hopSamples()) / static_cast<double>(rate),
@@ -308,7 +308,31 @@ void MainWindow::togglePlayback() {
     m_logarithmic = AppSettings::logarithmicFrequency();
     m_logFloorHz = AppSettings::logFloorHz();
     m_frequencyScaleReady = true;
+    if (fromStart == true) {
+        beginView(true);
+    }
     applyTransport();
+}
+
+// ================================================================================
+
+// Starts a new picture. The waterfall draws from the pipeline's sound buffer, so it
+// needs to know where the buffer starts and what the clock said at that moment.
+void MainWindow::beginView(bool fromFile) {
+    if (m_spectrogram == nullptr || m_pipeline == nullptr) {
+        return;
+    }
+    WaterfallSession session;
+    session.source = m_pipeline;
+    session.fftSize = m_pipeline->fftSamples();
+    session.hop = m_pipeline->hopSamples();
+    session.sampleRate = m_pipeline->captureSampleRate();
+    session.fromFile = fromFile;
+    const QDateTime now = QDateTime::currentDateTime();
+    const long long nowLocalMs = now.toMSecsSinceEpoch() + static_cast<long long>(now.offsetFromUtc()) * 1000LL;
+    const long long heardMs = session.sampleRate > 0 ? m_pipeline->livePosition() * 1000LL / session.sampleRate : 0;
+    session.clockOriginLocalMs = nowLocalMs - heardMs;
+    m_spectrogram->beginSession(session);
 }
 
 // ================================================================================
@@ -460,9 +484,8 @@ void MainWindow::refreshScale() {
         }
     }
     m_spectrogram->setScale(seconds, maximum, logarithmic, floor);
-    if (m_frequencyScaleReady == true && (logarithmic != m_logarithmic || floor != m_logFloorHz) &&
-        m_waterfall != nullptr) {
-        m_waterfall->clear();
+    if (m_frequencyScaleReady == true && (logarithmic != m_logarithmic || floor != m_logFloorHz)) {
+        m_spectrogram->redraw();
     }
     m_frequencyScaleReady = true;
     m_logarithmic = logarithmic;

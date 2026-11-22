@@ -1,7 +1,9 @@
 #pragma once
 
+#include "ColumnSource.h"
 #include "FftEngine.h"
 #include "PcmHistory.h"
+#include "SpectrumColumn.h"
 
 #include <QAudioDevice>
 #include <QAudioFormat>
@@ -16,6 +18,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <map>
 #include <span>
 #include <thread>
 #include <vector>
@@ -27,11 +30,11 @@ class QTimer;
 class AudioRingBuffer;
 
 // Captures one input and turns overlapped FFT blocks into color columns.
-// Overlap is the percent of the window reused for the next column (87 means
-// 87.5%). Columns are released on the hop interval so a large audio chunk
-// scrolls instead of appearing at once. Low frequencies are at the bottom.
+// Overlap is the percent of the window reused for the next column (87, 94 and 97
+// mean 87.5%, 93.75% and 96.875%). Columns are released on the hop interval so a
+// large audio chunk scrolls instead of appearing at once. Low frequencies are at the bottom.
 // prepareOffline() plus writeSamples() drives the same path without a device.
-class AudioPipeline : public QObject {
+class AudioPipeline : public QObject, public ColumnSource {
     Q_OBJECT
 
 public:
@@ -56,6 +59,7 @@ public:
                   const QString& paletteName, QString& error);
     void pauseClip();
     int hopSamples() const { return m_hop; }
+    int fftSamples() const { return m_fftSize; }
     int captureSampleRate() const { return m_sampleRate; }
 
     // How much recent audio Save can write. The new length applies on the next Start.
@@ -73,6 +77,13 @@ public:
     size_t writeSamples(std::span<const float> samples);
     bool processPendingBlock();
 
+    // ColumnSource. Redraws any column from the kept audio. While a file is
+    // playing the source is the whole file, so unplayed parts can be drawn too.
+    bool renderColumn(long long windowEnd, int fftSize, int maxRows, QVector<QRgb>& column) const override;
+    long long firstPosition() const override;
+    long long endPosition() const override;
+    long long livePosition() const override;
+
 signals:
     void columnReady(const QVector<QRgb>& column);
     void playbackFinished();
@@ -87,6 +98,7 @@ private:
     void releaseDueColumns();
     bool fillWindow();
     bool nextColumn(QVector<QRgb>& column);
+    SpectrumColumnSettings columnSettings() const;
     int columnIntervalMs() const;
 
     std::unique_ptr<AudioRingBuffer> m_buffer;
@@ -120,6 +132,14 @@ private:
     qint64 m_playbackOriginSamples = 0;
     std::vector<float> m_block;
     std::vector<float> m_levels;
+    // The redraw path has its own FFTs, one per window length it has been asked for,
+    // and its own scratch space, so it never shares state with the capture thread. It
+    // runs on the UI thread only.
+    mutable std::map<int, FftEngine> m_renderEngines;
+    mutable std::vector<float> m_renderBlock;
+    mutable std::vector<float> m_renderLevels;
+    bool m_renderFromClip = false;
+    bool m_renderValid = false;
     std::mutex m_queueMutex;
     std::deque<QVector<QRgb>> m_readyColumns;
     QTimer* m_releaseTimer = nullptr;

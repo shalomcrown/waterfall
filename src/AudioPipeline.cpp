@@ -131,6 +131,8 @@ void AudioPipeline::prepareOffline(int fftSize, const QString& paletteName, int 
     m_palette = paletteName;
     m_sampleRate = sampleRate;
     m_maxFrequencyHz = maxFrequencyHz;
+    m_renderFromClip = false;
+    m_renderValid = fftSize >= 2;
     m_pending.clear();
     m_filled = 0;
     {
@@ -141,6 +143,7 @@ void AudioPipeline::prepareOffline(int fftSize, const QString& paletteName, int 
         m_fftSize = 0;
         m_hop = 0;
         m_fft.configure(0);
+            m_renderValid = false;
         m_buffer.reset();
         m_block.clear();
         m_levels.clear();
@@ -265,6 +268,19 @@ bool AudioPipeline::fillWindow() {
 
 // ================================================================================
 
+SpectrumColumnSettings AudioPipeline::columnSettings() const {
+    SpectrumColumnSettings settings;
+    settings.fftSize = m_fftSize;
+    settings.sampleRate = m_sampleRate;
+    settings.maxFrequencyHz = m_maxFrequencyHz;
+    settings.logarithmic = m_logarithmic.load(std::memory_order_acquire);
+    settings.logFloorHz = m_logFloorHz.load(std::memory_order_acquire);
+    settings.palette = m_palette;
+    return settings;
+}
+
+// ================================================================================
+
 bool AudioPipeline::nextColumn(QVector<QRgb>& column) {
     const int generation = m_displayGeneration.load(std::memory_order_acquire);
     if (m_fftSize < 2 || fillWindow() == false) {
@@ -273,53 +289,77 @@ bool AudioPipeline::nextColumn(QVector<QRgb>& column) {
     if (m_fft.process(m_block, m_levels) == false) {
         return false;
     }
-    const int bins = static_cast<int>(m_levels.size());
-    int lastBin = bins - 1;
-    if (m_sampleRate > 1 && m_maxFrequencyHz > 0 &&
-        static_cast<double>(m_maxFrequencyHz) < static_cast<double>(m_sampleRate) / 2.0) {
-        const int limited = static_cast<int>(
-                std::lround(static_cast<double>(m_maxFrequencyHz) * m_fftSize / static_cast<double>(m_sampleRate)));
-        lastBin = std::clamp(limited, 1, bins - 1);
-    }
-    const int shown = lastBin + 1;
-    column.resize(shown);
-    const double topHz =
-            m_sampleRate > 1 ? static_cast<double>(lastBin) * static_cast<double>(m_sampleRate) / static_cast<double>(m_fftSize)
-                             : 0.0;
-    const int floorHz = m_logFloorHz.load(std::memory_order_acquire);
-    const bool logarithmic = m_logarithmic.load(std::memory_order_acquire) == true && topHz > static_cast<double>(floorHz);
-    if (logarithmic == true) {
-        const auto levelAt = [&](double hz) {
-            const double bin = hz * static_cast<double>(m_fftSize) / static_cast<double>(m_sampleRate);
-            if (bin <= 0.0) {
-                return m_levels.front();
-            }
-            if (bin >= static_cast<double>(bins - 1)) {
-                return m_levels.back();
-            }
-            const int lower = static_cast<int>(std::floor(bin));
-            const float fraction = static_cast<float>(bin - static_cast<double>(lower));
-            return m_levels[static_cast<size_t>(lower)] * (1.f - fraction) +
-                   m_levels[static_cast<size_t>(lower + 1)] * fraction;
-        };
-        for (int i = 0; i < shown; ++i) {
-            const double fromBottom =
-                    shown == 1 ? 1.0 : 1.0 - static_cast<double>(i) / static_cast<double>(shown - 1);
-            const double hz = hzFromBottom(fromBottom, topHz, true, static_cast<double>(floorHz));
-            column[i] = Palette::color(m_palette, levelAt(hz));
-        }
-    } else {
-        for (int i = 0; i < shown; ++i) {
-            // Row 0 is the top of the waterfall: the highest displayed frequency.
-            const int source = lastBin - i;
-            column[i] = Palette::color(m_palette, m_levels[static_cast<size_t>(source)]);
-        }
-    }
+    buildSpectrumColumn(m_levels, columnSettings(), column);
     if (generation != m_displayGeneration.load(std::memory_order_acquire)) {
         column.clear();
         return false;
     }
     return true;
+}
+
+// ================================================================================
+
+bool AudioPipeline::renderColumn(long long windowEnd, int fftSize, int maxRows, QVector<QRgb>& column) const {
+    if (m_renderValid == false || m_fftSize < 2 || fftSize < 2) {
+        return false;
+    }
+    const long long start = windowEnd - fftSize;
+    if (start < 0) {
+        return false;
+    }
+    m_renderBlock.resize(static_cast<size_t>(fftSize));
+    if (m_renderFromClip == true) {
+        if (windowEnd > static_cast<long long>(m_clip.size())) {
+            return false;
+        }
+        for (int i = 0; i < fftSize; ++i) {
+            m_renderBlock[static_cast<size_t>(i)] = static_cast<float>(m_clip[static_cast<size_t>(start + i)]) / 32768.f;
+        }
+    } else if (m_history.readRange(start, m_renderBlock) == false) {
+        return false;
+    }
+    auto engine = m_renderEngines.find(fftSize);
+    if (engine == m_renderEngines.end()) {
+        // A handful of lengths is all that zooming asks for.
+        if (m_renderEngines.size() >= 8) {
+            m_renderEngines.clear();
+        }
+        engine = m_renderEngines.try_emplace(fftSize).first;
+        engine->second.configure(fftSize);
+    }
+    m_renderLevels.resize(static_cast<size_t>(engine->second.binCount()));
+    if (engine->second.process(m_renderBlock, m_renderLevels) == false) {
+        return false;
+    }
+    SpectrumColumnSettings settings = columnSettings();
+    settings.fftSize = fftSize;
+    settings.maxRows = maxRows;
+    buildSpectrumColumn(m_renderLevels, settings, column);
+    return column.isEmpty() == false;
+}
+
+// ================================================================================
+
+long long AudioPipeline::firstPosition() const {
+    if (m_renderFromClip == true) {
+        return 0;
+    }
+    return m_history.firstPosition();
+}
+
+// ================================================================================
+
+long long AudioPipeline::livePosition() const {
+    return m_history.endPosition();
+}
+
+// ================================================================================
+
+long long AudioPipeline::endPosition() const {
+    if (m_renderFromClip == true) {
+        return static_cast<long long>(m_clip.size());
+    }
+    return m_history.endPosition();
 }
 
 // ================================================================================
@@ -362,6 +402,9 @@ bool AudioPipeline::loadClip(std::span<const std::int16_t> samples, int sampleRa
         return false;
     }
     stop();
+    if (m_renderFromClip == true) {
+        m_renderValid = false;
+    }
     m_clip.assign(samples.begin(), samples.end());
     m_clipRate = sampleRate;
     m_clipPos = 0;
@@ -372,6 +415,9 @@ bool AudioPipeline::loadClip(std::span<const std::int16_t> samples, int sampleRa
 
 void AudioPipeline::clearClip() {
     endPlayback();
+    if (m_renderFromClip == true) {
+        m_renderValid = false;
+    }
     m_clip.clear();
     m_clipRate = 0;
     m_clipPos = 0;
@@ -447,6 +493,7 @@ bool AudioPipeline::playClip(const QAudioDevice& device, int fftSize, int overla
             error = tr("The FFT size is too small.");
             return false;
         }
+        m_renderFromClip = true;
     }
     openPlaybackSink(device);
     m_playing = true;

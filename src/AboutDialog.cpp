@@ -68,6 +68,13 @@ AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent) {
     version->setAccessibleName(version->text());
     layout->addWidget(version);
 
+#if defined(WATERFALL_FULL_UNLOCK)
+    auto* edition = new QLabel(tr("Full version"), this);
+    edition->setObjectName(QStringLiteral("aboutEdition"));
+    edition->setAccessibleName(edition->text());
+    layout->addWidget(edition);
+#endif
+
     m_text = new QTextBrowser(this);
     m_text->setObjectName(QStringLiteral("aboutText"));
     m_text->setOpenExternalLinks(true);

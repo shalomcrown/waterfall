@@ -12,9 +12,14 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 > Work merged but not yet shipped. Move entries to a versioned section on release.
 
 ### Added
+- Zooming in on frequency lengthens the FFT used to draw the picture, so the zoom shows real extra detail instead of larger pixels. A note at the top left of the waterfall always shows the FFT size, the bin width, and the overlap, which rises automatically as the window grows. A Reset zoom button appears while zoomed and returns to the configured FFT size and overlap.
+- A row of the waterfall shows the strongest of the frequency bins it covers, so narrow peaks no longer drop out when the FFT has more bins than the screen has pixels.
+- FFT sizes 8192, 16384, and 32768, and overlaps of 93.75% and 96.875%, in Settings.
 - The window is a waterfall display with Start, Stop, Save, Load, Configure, and About along the bottom. About shows this README, with the build version above it. The version is `0.1.0`, the build date and time, and the git revision. Save writes the recent audio in a format you choose. WAV and MP3 are always available, and a device that can encode AAC or Opus offers those too. Load opens a WAV or MP3 file and plays it through the waterfall. During playback the buttons are Play or Pause, and Live. New color columns appear at the right edge and older columns shift left immediately. Both scales draw shorter tick marks between the numbered labels. The frequency scale can be logarithmic, with a floor that defaults to 5 Hz.
+- Zoom and pan. One finger or the left mouse button drags the picture. A sideways pinch zooms time, an up and down pinch zooms frequency, and a diagonal pinch zooms both. Ctrl and the wheel zoom time, Ctrl, Shift, and the wheel zoom frequency, and the keyboard has plus, minus, arrows, Home, and End. Capture continues while the view is back in time, and a Latest button returns to the live edge. The picture is drawn from the recorded sound, so only the part that is not yet on screen is computed after a pan or zoom.
+- The time scale shows the clock (`HH:mm:ss`) during live capture and the position in the file (`mm:ss`) for a loaded file. Both scales move with the zoomed view.
 - The Android launcher icon is the waterfall artwork, including an adaptive icon.
-- `./upload-firebase.sh` publishes the signed APK to Firebase App Distribution. `./install-prereqs.sh --mode android` installs the Firebase CLI.
+- `./upload-firebase.sh` publishes the signed APK to Firebase App Distribution. `./install-prereqs.sh --mode android` installs the Firebase CLI. `./build-android.sh --full` builds the unlocked APK for that upload, and About shows "Full version". A locked build is refused.
 - Configure opens settings for the input and output devices, sample rate, FFT size, and heatmap palette. Changes are stored immediately. Save and Load do not do anything yet.
 - Settings has an explicit Close button. On Android the page is full screen and the exit control is a Back button.
 - Start captures the selected input, buffers the samples, and draws a Hann-windowed FFT column on the waterfall. Overlap defaults to 50% and can be changed in Settings. Columns are released on the hop interval so the scroll stays even.
@@ -22,7 +27,9 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - Settings can keep the screen on, and can limit the displayed frequency range. The plot has a frequency scale on the left and a time scale along the bottom.
 
 ### Changed
--
+- Android builds use the same toolchain as ntpclock: Qt 6.11.3, NDK r27, JDK 21, build-tools 36.0.0. The app targets SDK 36 with minimum SDK 28 and 16 KB page alignment, which Google Play requires. The package name stays `com.kirayim.waterfall`. The minimum Android version rises from 6 to 9.
+- `./build-android.sh` builds a signed Android App Bundle on every run, next to the signed APK, and checks the SDK levels, the package name, and the 16 KB alignment of both.
+- Changing the frequency scale or its floor draws the waterfall again from the recorded sound instead of clearing it. Start now begins a fresh picture, and resizing the window draws the same sound again at the new size.
 
 ### Fixed
 - Save on Android no longer fails when the chosen folder is a document location such as Downloads. The file is written with the grant from the system document picker.

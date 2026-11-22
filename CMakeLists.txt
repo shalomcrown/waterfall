@@ -149,6 +149,7 @@ qt_add_executable(waterfall
         src/RecordingSave.cpp
         src/FftEngine.cpp
         src/Palette.cpp
+        src/SpectrumColumn.cpp
         src/AudioPipeline.cpp
         src/AppIcon.cpp
         src/ScreenAwake.cpp
@@ -168,6 +169,7 @@ endif()
 target_include_directories(waterfall PRIVATE src)
 add_dependencies(waterfall UpdateTimestamp)
 if(ANDROID)
+    qt_policy(SET QTP0002 NEW)
     target_sources(waterfall PRIVATE src/AndroidEncoder.cpp src/AndroidDocument.cpp)
     # ACTION_CREATE_DOCUMENT needs QtAndroidPrivate::startActivity. Those headers live in
     # the versioned private include, which the Android kit does not put on the default path.
@@ -206,8 +208,15 @@ if(ANDROID)
     add_custom_target(android_icons DEPENDS "${WATERFALL_ANDROID_ICON}")
     set_target_properties(waterfall PROPERTIES
             QT_ANDROID_PACKAGE_SOURCE_DIR "${WATERFALL_ANDROID_PACKAGE_DIR}"
+            QT_ANDROID_PACKAGE_NAME "com.kirayim.waterfall"
+            QT_ANDROID_TARGET_SDK_VERSION 36
+            QT_ANDROID_MIN_SDK_VERSION 28
     )
+    # NDK r27 aligns to 4 KB unless the link asks for 16 KB pages.
+    # https://doc.qt.io/qt-6.11/android.html
+    target_link_options(waterfall PRIVATE "-Wl,-z,max-page-size=16384")
     cmake_language(DEFER CALL add_dependencies waterfall_make_apk android_icons)
+    cmake_language(DEFER CALL add_dependencies waterfall_make_aab android_icons)
     add_custom_target(stamp_android_version
             COMMAND bash "${CMAKE_SOURCE_DIR}/version.sh" --android-manifest
                     "${HEADER_FILE}" "${WATERFALL_ANDROID_PACKAGE_DIR}/AndroidManifest.xml"
@@ -215,6 +224,7 @@ if(ANDROID)
     )
     add_dependencies(stamp_android_version UpdateTimestamp android_icons)
     cmake_language(DEFER CALL add_dependencies waterfall_make_apk stamp_android_version)
+    cmake_language(DEFER CALL add_dependencies waterfall_make_aab stamp_android_version)
 endif()
 target_link_libraries(waterfall PRIVATE
         Qt::Core
@@ -224,6 +234,10 @@ target_link_libraries(waterfall PRIVATE
         waterfall_pocketfft_impl
         waterfall_lame
 )
+option(WATERFALL_FULL_UNLOCK "Compile the full version for Firebase distribution" OFF)
+if(WATERFALL_FULL_UNLOCK)
+    target_compile_definitions(waterfall PRIVATE WATERFALL_FULL_UNLOCK=1)
+endif()
 if(TARGET Qt6::DBus)
     target_link_libraries(waterfall PRIVATE Qt6::DBus)
     target_compile_definitions(waterfall PRIVATE WATERFALL_HAS_DBUS=1)
@@ -259,6 +273,7 @@ if(NOT CMAKE_CROSSCOMPILING)
             src/RecordingSave.cpp
             src/FftEngine.cpp
             src/Palette.cpp
+            src/SpectrumColumn.cpp
             src/AudioPipeline.cpp
             src/AppIcon.cpp
             src/ScreenAwake.cpp

@@ -19,7 +19,7 @@ public:
     static int fftSize();
     static void setFftSize(int size);
 
-    // Percent of the FFT window kept for the next column. 87 means 87.5%.
+    // Percent of the FFT window kept for the next column. 87, 94 and 97 mean 87.5%, 93.75% and 96.875%.
     static int overlapPercent();
     static void setOverlapPercent(int percent);
 

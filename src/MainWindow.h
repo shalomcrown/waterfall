@@ -42,6 +42,7 @@ private:
     void showPermissionDialog();
     void showAudioError(const QString& text);
     void refreshScale();
+    void beginView(bool fromFile);
     void applyKeepAwake();
 
     bool m_saving = false;

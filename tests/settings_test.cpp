@@ -54,7 +54,7 @@ TEST(AppSettings, DefaultsAndImmediateRoundTrip) {
     EXPECT_EQ(AppSettings::recordingFormat(), QStringLiteral("wav"));
     EXPECT_FALSE(AppSettings::keepScreenOn());
     EXPECT_EQ(AppSettings::palette(), QStringLiteral("Viridis"));
-    EXPECT_EQ(AppSettings::fftSizes(), (QList<int>{1024, 2048, 4096}));
+    EXPECT_EQ(AppSettings::fftSizes(), (QList<int>{1024, 2048, 4096, 8192, 16384, 32768}));
 
     AppSettings::setInputDeviceId(QStringLiteral("mic-1"));
     AppSettings::setOutputDeviceId(QStringLiteral("spk-1"));
